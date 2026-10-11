@@ -18,7 +18,7 @@ PUT 是全量配置更新；反代/证书仅在 apply 生效，DDNS 的 enabled 
 ~~~json
 {
   "revision": 0,
-  "routes": [{"id":"app","domain":"app.example.com","port":18443,"scheme":"https","upstream":"http://127.0.0.1:8080","certificate_id":"wildcard","enabled":true}],
+  "routes": [{"id":"app","name":"家庭相册","domain":"app.example.com","port":18443,"scheme":"https","upstream":"http://127.0.0.1:8080","certificate_id":"wildcard","enabled":true}],
   "certificates": [{"id":"wildcard","domains":["*.example.com","example.com"],"mode":"dns","email":"you@example.com","provider":"cloudflare","token_env":"NETLITE_CF_TOKEN","staging":true}],
   "ddns": [{"id":"home","provider":"cloudflare","zone_id":"replace-zone-id","record_id":"replace-record-id","name":"app.example.com","type":"A","ip":"","token_env":"NETLITE_CF_TOKEN","interval_seconds":300,"enabled":false}]
 }
@@ -27,3 +27,7 @@ PUT 是全量配置更新；反代/证书仅在 apply 生效，DDNS 的 enabled 
 配置不包含密钥。域名使用小写 ASCII（国际域名请用 Punycode），泛域名仅接受最左 *.，不提供任意引擎配置透传。默认私有管理端口不能作为代理端口；上游只接受无路径的 HTTP(S) URL。
 
 证书模式 internal / acme / dns；当前 dns provider=cloudflare。staging=false 使用 Let's Encrypt 正式 CA，默认界面 staging=true。
+
+GET /api/proxy/config：鉴权后查看 Caddy 配置草稿及最近成功应用的配置；无已应用配置时 applied=null，凭据值隐藏，仅保留环境变量引用。
+
+代理规则的 `name` 为可选名称 / 备注，仅用于管理展示，不参与代理匹配；旧配置缺省时为空，保存后持久化到 SQLite。

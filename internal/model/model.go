@@ -16,6 +16,7 @@ type Config struct {
 }
 type Route struct {
 	ID            string `json:"id"`
+	Name          string `json:"name"`
 	Domain        string `json:"domain"`
 	Port          int    `json:"port"`
 	Scheme        string `json:"scheme"`

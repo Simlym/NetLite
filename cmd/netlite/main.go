@@ -177,6 +177,21 @@ func run() error {
 			}
 			respond(w, 200, c)
 		})
+		r.Get("/proxy/config", func(w http.ResponseWriter, r *http.Request) {
+			configMu.Lock()
+			defer configMu.Unlock()
+			cfg, err := s.Load()
+			if err != nil {
+				fail(w, 500, err)
+				return
+			}
+			view, err := engine.Configuration(cfg)
+			if err != nil {
+				fail(w, 500, fmt.Errorf("cannot read Caddy configuration"))
+				return
+			}
+			respond(w, 200, view)
+		})
 		r.Post("/proxy/validate", func(w http.ResponseWriter, r *http.Request) {
 			c, e := s.Load()
 			if e == nil {

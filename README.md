@@ -1,6 +1,6 @@
 # NetLite
 
-轻量跨平台网络管理工具。当前为 0.1.0 MVP，第一目标为 fnOS 原生 FPK。
+轻量跨平台网络管理工具。当前为 0.1.1 MVP，第一目标为 fnOS 原生 FPK。
 
 ## 已实现
 
@@ -53,7 +53,7 @@ Invoke-WebRequest https://static2.fnnas.com/fnpack/fnpack-1.2.3-windows-amd64 -O
 .\scripts\build-fpk.ps1 -Arch amd64
 ~~~
 
-输出：dist/netlite-0.1.0-amd64.fpk。此包使用 platform=x86，包含 Linux amd64 Go 后端、Caddy（Cloudflare 插件）、预构建前端，不依赖 NAS 的 Go / Node / Docker。
+输出：dist/netlite-0.1.1-amd64.fpk。此包使用 platform=x86，包含 Linux amd64 Go 后端、Caddy（Cloudflare 插件）、预构建前端，不依赖 NAS 的 Go / Node / Docker。
 
 ARM 可使用 -Arch arm64 分别构建 Caddy 和 FPK，但尚未完成 ARM 实机验证。脚本检查 Caddy 为正确架构的 Linux ELF，避免把 Windows .exe 打入 FPK。打包使用 dist 下新建的暂存目录，不改动源码模板。
 
@@ -158,3 +158,5 @@ DSM SPK：下一阶段复用静态 Linux 构建，单独实现 DSM 生命周期�
 - [Cloudflare DNS Record API](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/edit/)
 
 Windows 打包补充：实测 fnpack 1.2.3 在 Windows 生成的归档中脚本及二进制默认 0666。scripts/normalize-fpk.py 使用 Python 3 将 cmd/* 与 bin/netlite、bin/caddy 改为 0755，并按实测官方契约重新计算 app.tgz 的 MD5 更新 manifest.checksum；输入 checksum 不符合契约时直接拒绝处理。构建脚本已自动执行并回读核验。该步骤只处理生成的包，不改动 NAS 文件。构建机另需 Python 3。
+
+UI 更新：添加与编辑通过弹窗完成，主页面展示完整列表；删除需确认；点击「查看 Caddy 配置」可切换保存的配置草稿和最近成功应用的配置，查看内容会隐藏凭据值。
