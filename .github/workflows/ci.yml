@@ -17,6 +17,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Go formatting
+        run: |
+          gofmt -d internal/dnstask cmd/netlite/main.go internal/model/model.go internal/store/store.go internal/dnsaccount/vault.go
+          test -z "$(gofmt -l internal/dnstask cmd/netlite/main.go internal/model/model.go internal/store/store.go internal/dnsaccount/vault.go)"
       - name: Go tests
         run: go test ./...
       - name: DDNS race checks
