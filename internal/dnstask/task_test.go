@@ -7,7 +7,9 @@ func sampleTask() Task {
 }
 
 func TestTaskValidation(t *testing.T) {
-	if err := Validate(sampleTask()); err != nil { t.Fatal(err) }
+	if err := Validate(sampleTask()); err != nil {
+		t.Fatal(err)
+	}
 	for _, edit := range []func(*Task){
 		func(t *Task) { t.ID = "../outside" },
 		func(t *Task) { t.Secret = "" },
@@ -20,7 +22,10 @@ func TestTaskValidation(t *testing.T) {
 		func(t *Task) { t.IPv4.Domains = []string{"example.com", "EXAMPLE.COM"} },
 		func(t *Task) { t.IPv4.Domains = nil },
 	} {
-		task := sampleTask(); edit(&task)
-		if Validate(task) == nil { t.Fatalf("accepted invalid task: provider=%s", task.Provider) }
+		task := sampleTask()
+		edit(&task)
+		if Validate(task) == nil {
+			t.Fatalf("accepted invalid task: provider=%s", task.Provider)
+		}
 	}
 }

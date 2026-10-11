@@ -33,6 +33,7 @@ type Certificate struct {
 	AccountID string   `json:"account_id,omitempty"`
 	Staging   bool     `json:"staging"`
 }
+
 var ident = regexp.MustCompile("^[a-zA-Z0-9_-]{1,64}$")
 var env = regexp.MustCompile("^[A-Z][A-Z0-9_]{0,100}$")
 var label = regexp.MustCompile("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -151,4 +152,3 @@ func (c Config) Validate(reserved ...int) error {
 	}
 	return nil
 }
-

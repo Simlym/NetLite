@@ -16,7 +16,7 @@ import (
 type fakeEngine struct {
 	running map[string]bool
 	starts  int
-	checks int
+	checks  int
 }
 
 func (e *fakeEngine) Start(_ context.Context, t Task) error {
@@ -25,9 +25,9 @@ func (e *fakeEngine) Start(_ context.Context, t Task) error {
 	return nil
 }
 func (e *fakeEngine) CheckNow(id string) error { e.checks++; return nil }
-func (e *fakeEngine) Stop(id string)        { delete(e.running, id) }
-func (e *fakeEngine) Close()                { clear(e.running) }
-func (e *fakeEngine) State(id string) State { return State{Running: e.running[id]} }
+func (e *fakeEngine) Stop(id string)           { delete(e.running, id) }
+func (e *fakeEngine) Close()                   { clear(e.running) }
+func (e *fakeEngine) State(id string) State    { return State{Running: e.running[id]} }
 func request(t *testing.T, h http.Handler, method, path string, body any, want int) []byte {
 	t.Helper()
 	b, _ := json.Marshal(body)
@@ -121,4 +121,3 @@ func TestMissingMasterKeyDoesNotReplaceCredentials(t *testing.T) {
 		t.Fatal("lost master key silently replaced")
 	}
 }
-

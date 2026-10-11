@@ -13,14 +13,14 @@ import (
 // Task contains resolved credentials only in memory; never expose it through APIs.
 type Task struct {
 	ID, Name, Provider, CredentialID, Secret string
-	IPv4, IPv6 Source
-	Interval int
-	TTL string
+	IPv4, IPv6                               Source
+	Interval                                 int
+	TTL                                      string
 }
 
 type Source struct {
 	Domains []string
-	URL string
+	URL     string
 }
 
 var taskID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
@@ -45,7 +45,9 @@ func Validate(t Task) error {
 		return fmt.Errorf("task needs 1..100 records")
 	}
 	for _, source := range []Source{t.IPv4, t.IPv6} {
-		if len(source.Domains) == 0 { continue }
+		if len(source.Domains) == 0 {
+			continue
+		}
 		u, err := url.Parse(source.URL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
 			return fmt.Errorf("invalid IP source URL")
@@ -53,7 +55,9 @@ func Validate(t Task) error {
 		seen := map[string]bool{}
 		for _, domain := range source.Domains {
 			domain = strings.ToLower(domain)
-			if !model.Domain(domain) || seen[domain] { return fmt.Errorf("invalid or duplicate DDNS domain") }
+			if !model.Domain(domain) || seen[domain] {
+				return fmt.Errorf("invalid or duplicate DDNS domain")
+			}
 			seen[domain] = true
 		}
 	}

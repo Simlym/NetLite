@@ -56,8 +56,14 @@ func (s *Service) accounts() ([]model.DNSAccount, error)                 { retur
 func (s *Service) ResolveAccount(id string) (model.DNSCredential, error) { return s.vault.Resolve(id) }
 func (s *Service) accountUsed(id string) (bool, error) {
 	tasks, err := s.tasks()
-	if err != nil { return false, err }
-	for _, task := range tasks { if task.AccountID == id { return true, nil } }
+	if err != nil {
+		return false, err
+	}
+	for _, task := range tasks {
+		if task.AccountID == id {
+			return true, nil
+		}
+	}
 	cfg, e := s.store.Load()
 	if e != nil {
 		return false, e
@@ -157,7 +163,9 @@ func (s *Service) reconcile() error {
 		var b []byte
 		if err == nil {
 			err = Validate(task)
-			if err == nil { b, err = json.Marshal(task) }
+			if err == nil {
+				b, err = json.Marshal(task)
+			}
 		}
 		if err != nil {
 			s.engine.Stop(t.ID)
@@ -196,7 +204,9 @@ func (s *Service) Run(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		s.mu.Lock()
-		if err := s.reconcile(); err != nil { log.Printf("DDNS task reconciliation failed: %v", err) }
+		if err := s.reconcile(); err != nil {
+			log.Printf("DDNS task reconciliation failed: %v", err)
+		}
 		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
@@ -321,7 +331,9 @@ func (s *Service) Router() http.Handler {
 			serviceError(w, 500, "无法保存账号")
 			return
 		}
-		if err := s.reconcile(); err != nil { log.Printf("DDNS task reconciliation failed: %v", err) }
+		if err := s.reconcile(); err != nil {
+			log.Printf("DDNS task reconciliation failed: %v", err)
+		}
 		serviceJSON(w, 200, a.DNSAccount)
 	})
 	r.Delete("/accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -359,8 +371,12 @@ func (s *Service) Router() http.Handler {
 		}
 		t.ID = chi.URLParam(r, "id")
 		t.Name = strings.TrimSpace(t.Name)
-		for i := range t.IPv4Domains { t.IPv4Domains[i] = strings.ToLower(t.IPv4Domains[i]) }
-		for i := range t.IPv6Domains { t.IPv6Domains[i] = strings.ToLower(t.IPv6Domains[i]) }
+		for i := range t.IPv4Domains {
+			t.IPv4Domains[i] = strings.ToLower(t.IPv4Domains[i])
+		}
+		for i := range t.IPv6Domains {
+			t.IPv6Domains[i] = strings.ToLower(t.IPv6Domains[i])
+		}
 		if len(t.Name) > 500 {
 			serviceError(w, 400, "任务名称、域名数量或 TTL 不正确")
 			return
@@ -385,7 +401,9 @@ func (s *Service) Router() http.Handler {
 			serviceError(w, 500, "无法保存任务")
 			return
 		}
-		if err := s.reconcile(); err != nil { log.Printf("DDNS task reconciliation failed: %v", err) }
+		if err := s.reconcile(); err != nil {
+			log.Printf("DDNS task reconciliation failed: %v", err)
+		}
 		serviceJSON(w, 200, t)
 	})
 	r.Delete("/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -434,12 +452,18 @@ func (s *Service) Router() http.Handler {
 					serviceError(w, 400, "请先启用任务")
 					return
 				}
-				if err := s.reconcile(); err != nil { serviceError(w, 500, "无法读取任务配置"); return }
+				if err := s.reconcile(); err != nil {
+					serviceError(w, 500, "无法读取任务配置")
+					return
+				}
 				if p := s.problems[id]; p != "" {
 					serviceError(w, 400, p)
 					return
 				}
-				if err := s.engine.CheckNow(id); err != nil { serviceError(w, 503, "任务未运行"); return }
+				if err := s.engine.CheckNow(id); err != nil {
+					serviceError(w, 503, "任务未运行")
+					return
+				}
 				serviceJSON(w, 202, map[string]string{"message": "已请求重新检查，DNS 同步结果尚未确认"})
 				return
 			}
@@ -470,4 +494,3 @@ func serviceDecode(w http.ResponseWriter, r *http.Request, v any) bool {
 	}
 	return true
 }
-

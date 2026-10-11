@@ -55,4 +55,3 @@ func TestCertificateAccountReferences(t *testing.T) {
 		t.Fatal("dangling certificate account accepted")
 	}
 }
-

@@ -58,4 +58,3 @@ func TestHistoryPersistenceRetentionAndDeletion(t *testing.T) {
 		t.Fatal("history not removed")
 	}
 }
-

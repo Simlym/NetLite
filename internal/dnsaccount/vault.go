@@ -127,4 +127,3 @@ func (s *Vault) Resolve(id string) (model.DNSCredential, error) {
 	}
 	return model.DNSCredential{Provider: a.Provider, ID: a.CredentialID, Secret: secret}, nil
 }
-
