@@ -1,4 +1,4 @@
-package ddnsgo
+package dnstask
 
 import "encoding/json"
 

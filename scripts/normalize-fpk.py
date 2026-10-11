@@ -44,7 +44,7 @@ def normalize(path):
         raise ValueError("fnpack app.tgz checksum contract changed or package corrupted")
     inner = read(app)
     for info, _ in inner:
-        info.mode = 0o755 if info.isdir() or info.name in ("bin/netlite", "bin/caddy", "bin/ddns-go") else 0o644
+        info.mode = 0o755 if info.isdir() or info.name in ("bin/netlite", "bin/caddy") else 0o644
     app = archive(inner)
     manifest = manifest[:match.start(1)] + hashlib.md5(app).hexdigest() + manifest[match.end(1):]
     for info, content in outer:
@@ -64,7 +64,7 @@ def normalize(path):
     for info, _ in checked:
         if info.name.startswith("cmd/") and info.isfile(): assert info.mode == 0o755
     for info, _ in read(checked_files["app.tgz"]):
-        if info.name in ("bin/netlite", "bin/caddy", "bin/ddns-go"): assert info.mode == 0o755
+        if info.name in ("bin/netlite", "bin/caddy"): assert info.mode == 0o755
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_bytes(result)
     os.replace(temp, path)
@@ -74,3 +74,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("package", type=Path)
     normalize(parser.parse_args().package.resolve())
+

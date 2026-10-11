@@ -18,7 +18,7 @@ func Open(path string) (*Store, error) {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	_, e = db.Exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, body TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ddns_status (id TEXT PRIMARY KEY, body TEXT NOT NULL); INSERT OR IGNORE INTO config VALUES(1,0,'{\"revision\":0,\"routes\":[],\"certificates\":[],\"ddns\":[]}');")
+	_, e = db.Exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, body TEXT NOT NULL); INSERT OR IGNORE INTO config VALUES(1,0,'{\"revision\":0,\"routes\":[],\"certificates\":[]}');")
 	if e != nil {
 		db.Close()
 		return nil, e
@@ -50,28 +50,4 @@ func (s *Store) Save(c model.Config) (model.Config, error) {
 		return c, ErrConflict
 	}
 	return c, nil
-}
-func (s *Store) Status(id string, v any) error {
-	b, e := json.Marshal(v)
-	if e != nil {
-		return e
-	}
-	_, e = s.DB.Exec("INSERT INTO ddns_status VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body", id, string(b))
-	return e
-}
-func (s *Store) Statuses() (map[string]json.RawMessage, error) {
-	rows, e := s.DB.Query("SELECT id,body FROM ddns_status")
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	out := map[string]json.RawMessage{}
-	for rows.Next() {
-		var id, b string
-		if e = rows.Scan(&id, &b); e != nil {
-			return nil, e
-		}
-		out[id] = json.RawMessage(b)
-	}
-	return out, rows.Err()
 }

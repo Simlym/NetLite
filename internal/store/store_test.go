@@ -43,7 +43,7 @@ func TestLegacyRouteWithoutName(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer s.DB.Close()
-	_, e = s.DB.Exec(`UPDATE config SET body='{"revision":0,"routes":[{"id":"old","domain":"app.example.com","scheme":"http","port":18080,"upstream":"http://127.0.0.1:8080","enabled":true}],"certificates":[],"ddns":[]}' WHERE id=1`)
+	_, e = s.DB.Exec(`UPDATE config SET body='{"revision":0,"routes":[{"id":"old","domain":"app.example.com","scheme":"http","port":18080,"upstream":"http://127.0.0.1:8080","enabled":true}],"certificates":[]}' WHERE id=1`)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -63,3 +63,4 @@ func TestLegacyRouteWithoutName(t *testing.T) {
 		t.Fatal("name was not saved")
 	}
 }
+

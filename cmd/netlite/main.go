@@ -15,8 +15,7 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"netlite/internal/ddns"
-	"netlite/internal/ddnsgo"
+	"netlite/internal/dnstask"
 	"netlite/internal/model"
 	"netlite/internal/proxy"
 	"netlite/internal/store"
@@ -50,7 +49,6 @@ func run() error {
 	web := flag.String("web", "web/dist", "built frontend directory")
 	binary := flag.String("caddy", "caddy", "independent Caddy executable")
 	admin := flag.String("caddy-admin", "127.0.0.1:20190", "private Caddy admin")
-	ddnsBinary := flag.String("ddns-go", "", "optional ddns-go v6.17.7 executable")
 	noCaddy := flag.Bool("no-caddy", false, "development only: CRUD without engine")
 	flag.Parse()
 	host, port, e := net.SplitHostPort(*admin)
@@ -104,11 +102,10 @@ func run() error {
 	defer s.DB.Close()
 	engine := proxy.New(*binary, *data, *admin)
 	var adapter proxy.ProxyEngine = engine
-	worker := ddns.New(s)
 	var configMu sync.Mutex
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	ddnsService, e := ddnsgo.OpenService(ctx, s, *ddnsBinary, filepath.Join(*data, "ddns-go"))
+	ddnsService, e := dnstask.OpenService(ctx, s, filepath.Join(*data, "dns"))
 	if e != nil {
 		return e
 	}
@@ -149,11 +146,6 @@ func run() error {
 			})
 		})
 		ddnsRouter := ddnsService.Router()
-		r.Mount("/ddns-go", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			configMu.Lock()
-			defer configMu.Unlock()
-			ddnsRouter.ServeHTTP(w, req)
-		}))
 		r.Mount("/dns", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			configMu.Lock()
 			defer configMu.Unlock()
@@ -192,10 +184,6 @@ func run() error {
 			}
 			if e := ddnsService.ValidateCertificates(c); e != nil {
 				fail(w, 400, e)
-				return
-			}
-			if err := ddnsService.ValidateLegacy(c); err != nil {
-				fail(w, 409, err)
 				return
 			}
 			c, e := s.Save(c)
@@ -264,33 +252,9 @@ func run() error {
 				fail(w, 500, e)
 				return
 			}
-			d, e := s.Statuses()
-			if e != nil {
-				fail(w, 500, e)
-				return
-			}
-			respond(w, 200, map[string]any{"proxy": p, "ddns": d, "certificate_note": "issuance and renewal run asynchronously in Caddy; inspect caddy.log"})
+			respond(w, 200, map[string]any{"proxy": p, "certificate_note": "issuance and renewal run asynchronously in Caddy; inspect caddy.log"})
 		})
-		r.Post("/ddns/{id}/run", func(w http.ResponseWriter, r *http.Request) {
-			configMu.Lock()
-			defer configMu.Unlock()
-			c, e := s.Load()
-			if e != nil {
-				fail(w, 500, e)
-				return
-			}
-			for _, d := range c.DDNS {
-				if d.ID == chi.URLParam(r, "id") {
-					if !d.Enabled {
-						fail(w, 400, fmt.Errorf("enable DDNS before running"))
-						return
-					}
-					respond(w, 200, worker.Update(r.Context(), d))
-					return
-				}
-			}
-			fail(w, 404, fmt.Errorf("DDNS entry not found"))
-		})
+
 	})
 	static := http.FileServer(http.Dir(*web))
 	r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -315,15 +279,12 @@ func run() error {
 	}()
 	ddnsDone := make(chan struct{})
 	go func() { defer close(ddnsDone); ddnsService.Run(ctx) }()
-	workerDone := make(chan struct{})
-	go func() { defer close(workerDone); worker.Run(ctx) }()
 	log.Printf("NetLite listening on %s; management token is in %s", *listen, tokenPath)
 	<-ctx.Done()
 	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()
 	srv.Shutdown(shutdown)
 	<-engineDone
-	<-workerDone
 	<-ddnsDone
 	select {
 	case e := <-errCh:

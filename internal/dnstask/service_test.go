@@ -1,4 +1,4 @@
-package ddnsgo
+package dnstask
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 type fakeEngine struct {
 	running map[string]bool
 	starts  int
+	checks  int
 }
 
 func (e *fakeEngine) Start(_ context.Context, t Task) error {
@@ -23,9 +24,10 @@ func (e *fakeEngine) Start(_ context.Context, t Task) error {
 	e.starts++
 	return nil
 }
-func (e *fakeEngine) Stop(id string)        { delete(e.running, id) }
-func (e *fakeEngine) Close()                { clear(e.running) }
-func (e *fakeEngine) State(id string) State { return State{Running: e.running[id]} }
+func (e *fakeEngine) CheckNow(id string) error { e.checks++; return nil }
+func (e *fakeEngine) Stop(id string)           { delete(e.running, id) }
+func (e *fakeEngine) Close()                   { clear(e.running) }
+func (e *fakeEngine) State(id string) State    { return State{Running: e.running[id]} }
 func request(t *testing.T, h http.Handler, method, path string, body any, want int) []byte {
 	t.Helper()
 	b, _ := json.Marshal(body)
@@ -44,9 +46,7 @@ func TestServiceLifecycleAndCredentials(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer db.DB.Close()
-	binary := filepath.Join(dir, "fake.exe")
-	os.WriteFile(binary, []byte("fixture"), 0600)
-	svc, e := OpenService(context.Background(), db, binary, filepath.Join(dir, "private"))
+	svc, e := OpenService(context.Background(), db, filepath.Join(dir, "private"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -81,20 +81,16 @@ func TestServiceLifecycleAndCredentials(t *testing.T) {
 	duplicate := task
 	duplicate.ID = "duplicate"
 	request(t, h, "PUT", "/tasks/duplicate", duplicate, 400)
-	legacy := model.Config{DDNS: []model.DDNS{{Name: "example.com", Type: "A", Enabled: true}}}
-	if svc.ValidateLegacy(legacy) == nil {
-		t.Fatal("legacy duplicate accepted")
-	}
 	request(t, h, "POST", "/tasks/task/run", nil, 202)
-	if engine.starts != 2 {
-		t.Fatal("manual request did not reload")
+	if engine.starts != 1 || engine.checks != 1 {
+		t.Fatal("manual request restarted the task or did not queue a check")
 	}
 	task.Enabled = false
 	request(t, h, "PUT", "/tasks/task", task, 200)
 	if engine.running["task"] {
-		t.Fatal("disabled child running")
+		t.Fatal("disabled task running")
 	}
-	reopened, e := OpenService(context.Background(), db, binary, filepath.Join(dir, "private"))
+	reopened, e := OpenService(context.Background(), db, filepath.Join(dir, "private"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -113,7 +109,7 @@ func TestMissingMasterKeyDoesNotReplaceCredentials(t *testing.T) {
 	}
 	defer db.DB.Close()
 	private := filepath.Join(dir, "private")
-	s, e := OpenService(context.Background(), db, "", private)
+	s, e := OpenService(context.Background(), db, private)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -121,7 +117,7 @@ func TestMissingMasterKeyDoesNotReplaceCredentials(t *testing.T) {
 	if e = os.Remove(filepath.Join(private, "master.key")); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = OpenService(context.Background(), db, "", private); e == nil {
+	if _, e = OpenService(context.Background(), db, private); e == nil {
 		t.Fatal("lost master key silently replaced")
 	}
 }

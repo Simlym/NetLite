@@ -1,4 +1,4 @@
-package ddnsgo
+package dnstask
 
 import (
 	"context"
@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"io"
+	"log"
 	"net/http"
 	"netlite/internal/dnsaccount"
 	"netlite/internal/model"
 	"netlite/internal/store"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +20,7 @@ import (
 
 type Service struct {
 	store                   *store.Store
-	engine                  ProcessEngine
-	binary                  string
+	engine                  TaskEngine
 	vault                   *dnsaccount.Vault
 	AppliedAccountReference func(string) bool
 	ctx                     context.Context
@@ -40,7 +37,7 @@ type taskView struct {
 	State State `json:"state"`
 }
 
-func OpenService(ctx context.Context, s *store.Store, binary, dir string) (*Service, error) {
+func OpenService(ctx context.Context, s *store.Store, dir string) (*Service, error) {
 	vault, e := dnsaccount.Open(s, dir)
 	if e != nil {
 		return nil, e
@@ -51,13 +48,22 @@ func OpenService(ctx context.Context, s *store.Store, binary, dir string) (*Serv
 	if _, e = s.DB.Exec(`CREATE TABLE IF NOT EXISTS dns_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT NOT NULL,body TEXT NOT NULL); CREATE INDEX IF NOT EXISTS dns_history_task ON dns_history(task_id,seq);`); e != nil {
 		return nil, e
 	}
-	svc := &Service{store: s, engine: New(binary, filepath.Join(dir, "tasks")), binary: binary, vault: vault, ctx: ctx, active: map[string][32]byte{}, problems: map[string]string{}}
+	svc := &Service{store: s, engine: New(), vault: vault, ctx: ctx, active: map[string][32]byte{}, problems: map[string]string{}}
 	svc.engine.(*Engine).onFinished = svc.saveResult
 	return svc, nil
 }
 func (s *Service) accounts() ([]model.DNSAccount, error)                 { return s.vault.List() }
 func (s *Service) ResolveAccount(id string) (model.DNSCredential, error) { return s.vault.Resolve(id) }
 func (s *Service) accountUsed(id string) (bool, error) {
+	tasks, err := s.tasks()
+	if err != nil {
+		return false, err
+	}
+	for _, task := range tasks {
+		if task.AccountID == id {
+			return true, nil
+		}
+	}
 	cfg, e := s.store.Load()
 	if e != nil {
 		return false, e
@@ -114,21 +120,12 @@ func (s *Service) conflict(t model.DDNSTask) error {
 	if e != nil {
 		return e
 	}
-	old, e := s.store.Load()
-	if e != nil {
-		return e
-	}
 	domains := map[string]bool{}
 	for _, d := range t.IPv4Domains {
 		domains["A:"+d] = true
 	}
 	for _, d := range t.IPv6Domains {
 		domains["AAAA:"+d] = true
-	}
-	for _, d := range old.DDNS {
-		if d.Enabled && domains[d.Type+":"+d.Name] {
-			return fmt.Errorf("该记录仍由旧 DDNS 任务管理，请先停用旧任务")
-		}
 	}
 	for _, other := range all {
 		if other.ID == t.ID || !other.Enabled {
@@ -148,35 +145,6 @@ func (s *Service) conflict(t model.DDNSTask) error {
 	return nil
 }
 
-// ValidateLegacy prevents a later legacy-config save from enabling the same record.
-func (s *Service) ValidateLegacy(c model.Config) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tasks, err := s.tasks()
-	if err != nil {
-		return err
-	}
-	for _, task := range tasks {
-		if !task.Enabled {
-			continue
-		}
-		for _, old := range c.DDNS {
-			if !old.Enabled {
-				continue
-			}
-			domains := task.IPv4Domains
-			if old.Type == "AAAA" {
-				domains = task.IPv6Domains
-			}
-			for _, domain := range domains {
-				if old.Name == domain {
-					return fmt.Errorf("该解析记录已由 ddns-go 任务管理，请先停用新任务")
-				}
-			}
-		}
-	}
-	return nil
-}
 func (s *Service) reconcile() error {
 	tasks, e := s.tasks()
 	if e != nil {
@@ -194,7 +162,10 @@ func (s *Service) reconcile() error {
 		}
 		var b []byte
 		if err == nil {
-			b, err = Render(task)
+			err = Validate(task)
+			if err == nil {
+				b, err = json.Marshal(task)
+			}
 		}
 		if err != nil {
 			s.engine.Stop(t.ID)
@@ -233,7 +204,9 @@ func (s *Service) Run(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		s.mu.Lock()
-		_ = s.reconcile()
+		if err := s.reconcile(); err != nil {
+			log.Printf("DDNS task reconciliation failed: %v", err)
+		}
 		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
@@ -242,7 +215,6 @@ func (s *Service) Run(ctx context.Context) {
 		}
 	}
 }
-func (s *Service) available() bool { f, e := os.Stat(s.binary); return e == nil && !f.IsDir() }
 func (s *Service) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
@@ -286,7 +258,7 @@ func (s *Service) Router() http.Handler {
 			}
 			views = append(views, taskView{t, state})
 		}
-		serviceJSON(w, 200, map[string]any{"accounts": accounts, "tasks": views, "available": s.available(), "version": "v6.17.7"})
+		serviceJSON(w, 200, map[string]any{"accounts": accounts, "tasks": views, "available": true, "engine": "native", "version": "1"})
 	})
 	r.Get("/accounts", func(w http.ResponseWriter, r *http.Request) {
 		a, e := s.accounts()
@@ -359,7 +331,9 @@ func (s *Service) Router() http.Handler {
 			serviceError(w, 500, "无法保存账号")
 			return
 		}
-		_ = s.reconcile()
+		if err := s.reconcile(); err != nil {
+			log.Printf("DDNS task reconciliation failed: %v", err)
+		}
 		serviceJSON(w, 200, a.DNSAccount)
 	})
 	r.Delete("/accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -397,8 +371,13 @@ func (s *Service) Router() http.Handler {
 		}
 		t.ID = chi.URLParam(r, "id")
 		t.Name = strings.TrimSpace(t.Name)
-		ttl, ttlError := strconv.Atoi(t.TTL)
-		if ttlError != nil || ttl < 1 || ttl > 86400 || len(t.Name) > 500 || len(t.IPv4Domains)+len(t.IPv6Domains) > 100 {
+		for i := range t.IPv4Domains {
+			t.IPv4Domains[i] = strings.ToLower(t.IPv4Domains[i])
+		}
+		for i := range t.IPv6Domains {
+			t.IPv6Domains[i] = strings.ToLower(t.IPv6Domains[i])
+		}
+		if len(t.Name) > 500 {
 			serviceError(w, 400, "任务名称、域名数量或 TTL 不正确")
 			return
 		}
@@ -408,7 +387,7 @@ func (s *Service) Router() http.Handler {
 		}
 		task, e := s.renderTask(t)
 		if e == nil {
-			_, e = Render(task)
+			e = Validate(task)
 		}
 		if e == nil {
 			e = s.conflict(t)
@@ -417,16 +396,14 @@ func (s *Service) Router() http.Handler {
 			serviceError(w, 400, e.Error())
 			return
 		}
-		if t.Enabled && !s.available() {
-			serviceError(w, 400, "ddns-go 引擎未配置，暂时只能保存停用的任务")
-			return
-		}
 		b, _ := json.Marshal(t)
 		if _, e = s.store.DB.Exec("INSERT INTO dns_tasks VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body", t.ID, string(b)); e != nil {
 			serviceError(w, 500, "无法保存任务")
 			return
 		}
-		_ = s.reconcile()
+		if err := s.reconcile(); err != nil {
+			log.Printf("DDNS task reconciliation failed: %v", err)
+		}
 		serviceJSON(w, 200, t)
 	})
 	r.Delete("/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -475,10 +452,16 @@ func (s *Service) Router() http.Handler {
 					serviceError(w, 400, "请先启用任务")
 					return
 				}
-				delete(s.active, id)
-				_ = s.reconcile()
+				if err := s.reconcile(); err != nil {
+					serviceError(w, 500, "无法读取任务配置")
+					return
+				}
 				if p := s.problems[id]; p != "" {
 					serviceError(w, 400, p)
+					return
+				}
+				if err := s.engine.CheckNow(id); err != nil {
+					serviceError(w, 503, "任务未运行")
 					return
 				}
 				serviceJSON(w, 202, map[string]string{"message": "已请求重新检查，DNS 同步结果尚未确认"})

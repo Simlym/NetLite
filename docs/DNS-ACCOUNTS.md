@@ -2,7 +2,7 @@
 
 DNS 账号独立于 DDNS 任务。DDNS 更新 A/AAAA，证书 DNS-01 创建和清理 TXT；二者可以引用同一账号但独立运行，无需开启 DDNS 才能申请证书。账户 API、DDNS 和证书引用保护共用配置锁。
 
-凭据库存储位于 internal/dnsaccount，维持原 dns_accounts 表和 ddns-go/master.key 的位置及 AES-GCM 格式，已有账号不搬迁或重新填写。数据库与 master.key 必须一起备份。证书只存 account_id，DDNS 也只存 account_id。
+凭据库存储位于 internal/dnsaccount，使用 dns_accounts 表及 dns/master.key，密钥以 AES-GCM 加密。本次开发阶段变更不提供旧数据迁移。数据库与 master.key 必须一起备份。证书只存 account_id，DDNS 也只存 account_id。
 
 ## 厂商适配
 
@@ -15,7 +15,7 @@ DNS 账号独立于 DDNS 任务。DDNS 更新 A/AAAA，证书 DNS-01 创建和�
 
 DNSPod 固定源码版本已切换为 api_token，不能照旧 README 使用 auth_token；腾讯云的 JSON 字段也不能照 Caddyfile 的 secret_id 命名。四种配置均以实际构建的 Caddy validate 校验。
 
-Caddy DNS 插件与 ddns-go 的厂商实现独立。增加新厂商时必须分别检查两个引擎的支持和字段映射；UI 按已安装 Caddy 模块筛选账号。DNSPod Token 与腾讯云 SecretId/SecretKey 是两种账号类型，不能混用。
+Caddy DNS 插件与内置 DDNS 引擎的厂商实现独立。增加新厂商时必须分别检查两个引擎的支持和字段映射；UI 按已安装 Caddy 模块筛选账号。DNSPod Token 与腾讯云 SecretId/SecretKey 是两种账号类型，不能混用。
 
 ## 生命周期与边界
 
@@ -27,6 +27,6 @@ Caddy DNS 插件与 ddns-go 的厂商实现独立。增加新厂商时必须分�
 
 ## 验证
 
-已运行完整 Go 测试、go vet、前端构建与 HTTP/HTTPS/重启恢复 smoke；四厂商真实 Caddy validate 配置检查；模拟回环加载验证运行载荷包含凭据而 checkpoint 只含引用；引用删除保护、轮换、旧配置兼容测试。
-
-隔离浏览器实例使用虚构 DNSPod 凭据，DDNS 任务保持停用，证书保存引用同一账号，预览与配置校验通过。未执行真实 DNS 修改。fnOS 实机安装/升级、真实 DNS-01 签发及续期未验证。
+当前 DDNS 实现的模拟 API 与调度测试见 docs/DDNS-INTEGRATION.md。
+此前版本的 Caddy 插件校验与 smoke 记录见 docs/VALIDATION.md；不代表当前 DDNS 已通过公网验证。
+fnOS 实机安装/升级、真实 DNS-01 签发及续期未验证。

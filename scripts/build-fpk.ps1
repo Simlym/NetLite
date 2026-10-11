@@ -1,4 +1,4 @@
-param([string]$CaddyBinary='', [string]$DdnsBinary='', [string]$Fnpack='', [ValidateSet('amd64','arm64')][string]$Arch='amd64', [switch]$SkipWebBuild)
+param([string]$CaddyBinary='', [string]$Fnpack='', [ValidateSet('amd64','arm64')][string]$Arch='amd64', [switch]$SkipWebBuild)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -11,12 +11,6 @@ $header=[IO.File]::ReadAllBytes($CaddyBinary)
 if ($header.Length -lt 20 -or $header[0] -ne 127 -or $header[1] -ne 69 -or $header[2] -ne 76 -or $header[3] -ne 70) {throw 'Caddy must be Linux ELF, not Windows executable'}
 $machine=[BitConverter]::ToUInt16($header,18)
 if (($Arch -eq 'amd64' -and $machine -ne 62) -or ($Arch -eq 'arm64' -and $machine -ne 183)) {throw 'Caddy ELF architecture mismatch'}
-if (!$DdnsBinary) {$DdnsBinary=Join-Path $root ('tools/ddns-go-linux-'+$Arch)}
-$DdnsBinary=(Resolve-Path -LiteralPath $DdnsBinary).Path
-$ddnsHeader=[IO.File]::ReadAllBytes($DdnsBinary)
-if ($ddnsHeader.Length -lt 20 -or $ddnsHeader[0] -ne 127 -or $ddnsHeader[1] -ne 69 -or $ddnsHeader[2] -ne 76 -or $ddnsHeader[3] -ne 70) {throw 'ddns-go must be Linux ELF'}
-$ddnsMachine=[BitConverter]::ToUInt16($ddnsHeader,18)
-if (($Arch -eq 'amd64' -and $ddnsMachine -ne 62) -or ($Arch -eq 'arm64' -and $ddnsMachine -ne 183)) {throw 'ddns-go ELF architecture mismatch'}
 New-Item -ItemType Directory -Path dist -Force | Out-Null
 if ($SkipWebBuild) { if (!(Test-Path 'web/dist/index.html')) {throw 'Build the frontend before using -SkipWebBuild'} } else {
 Push-Location web
@@ -30,11 +24,11 @@ Copy-Item -LiteralPath (Join-Path $root 'packaging/fnos/netlite') -Destination $
 New-Item -ItemType Directory -Path "$stage/app/bin","$stage/app/web" -Force | Out-Null
 Copy-Item -LiteralPath "dist/netlite-linux-$Arch" -Destination "$stage/app/bin/netlite"
 Copy-Item -LiteralPath $CaddyBinary -Destination "$stage/app/bin/caddy"
-Copy-Item -LiteralPath $DdnsBinary -Destination "$stage/app/bin/ddns-go"
 New-Item -ItemType Directory -Path "$stage/app/licenses" -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $root 'tools/ddns-go-LICENSE') -Destination "$stage/app/licenses/ddns-go-LICENSE"
+Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination "$stage/app/licenses/THIRD_PARTY_NOTICES.md"
 Copy-Item -Path 'web/dist/*'  -Destination "$stage/app/web" -Recurse
 if ($Arch -eq 'arm64') {(Get-Content -LiteralPath "$stage/manifest" -Raw).Replace('platform=x86','platform=arm') | Set-Content -LiteralPath "$stage/manifest" -Encoding utf8NoBOM}
 Push-Location $stage
 try {& $Fnpack build; if ($LASTEXITCODE) {throw 'fnpack build failed'}; & python (Join-Path $root 'scripts/normalize-fpk.py') 'netlite.fpk'; if ($LASTEXITCODE) {throw 'FPK permission/checksum verification failed'};Copy-Item -LiteralPath 'netlite.fpk' -Destination (Join-Path $root "dist/netlite-0.1.4-$Arch.fpk")}finally{Pop-Location}
 Write-Host "FPK: $root/dist/netlite-0.1.4-$Arch.fpk"
+

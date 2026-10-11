@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Go formatting
+        run: |
+          gofmt -d internal/dnstask cmd/netlite/main.go internal/model/model.go internal/store/store.go internal/dnsaccount/vault.go
+          test -z "$(gofmt -l internal/dnstask cmd/netlite/main.go internal/model/model.go internal/store/store.go internal/dnsaccount/vault.go)"
+      - name: Go tests
+        run: go test ./...
+      - name: DDNS race checks
+        run: go test -race ./internal/dnstask
+      - name: Go vet
+        run: go vet ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Frontend checks
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build

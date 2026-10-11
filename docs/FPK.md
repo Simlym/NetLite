@@ -1,3 +1,5 @@
+> 本文包含此前版本的验证记录。当前 DDNS 已内置，原 ddns-go 构建、二进制及测试结果不适用于当前引擎；当前验证要求见 DDNS-INTEGRATION.md。
+
 # fnOS 官方规范核验
 
 核验日期：2026-10-11（Asia/Shanghai）。直接通过 HTTPS 读取 developer.fnnas.com 的官方 HTML，不以第三方文章代替契约。
@@ -33,3 +35,4 @@
 没有 fnOS 设备时，最多确认打包器校验和包内容，不能把本地 Windows 的运行验证当作以上实机结果。
 
 Windows 打包补充：实测 fnpack 1.2.3 在 Windows 生成的归档中脚本及二进制默认 0666。scripts/normalize-fpk.py 使用 Python 3 将 cmd/* 与 bin/netlite、bin/caddy 改为 0755，并按实测官方契约重新计算 app.tgz 的 MD5 更新 manifest.checksum；输入 checksum 不符合契约时直接拒绝处理。构建脚本已自动执行并回读核验。该步骤只处理生成的包，不改动 NAS 文件。构建机另需 Python 3。
+

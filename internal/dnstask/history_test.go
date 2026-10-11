@@ -1,4 +1,4 @@
-package ddnsgo
+package dnstask
 
 import (
 	"context"
@@ -16,7 +16,7 @@ func TestHistoryPersistenceRetentionAndDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := OpenService(context.Background(), db, "", filepath.Join(dir, "private"))
+	svc, err := OpenService(context.Background(), db, filepath.Join(dir, "private"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestHistoryPersistenceRetentionAndDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.DB.Close()
-	svc, err = OpenService(context.Background(), db, "", filepath.Join(dir, "private"))
+	svc, err = OpenService(context.Background(), db, filepath.Join(dir, "private"))
 	if err != nil {
 		t.Fatal(err)
 	}

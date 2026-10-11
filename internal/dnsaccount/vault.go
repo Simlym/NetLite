@@ -18,7 +18,7 @@ type Vault struct {
 	key   []byte
 }
 
-// Keep the existing key location and table to preserve installed accounts.
+// Credentials share one application-owned vault for DDNS and DNS-01.
 func Open(s *store.Store, dir string) (*Vault, error) {
 	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS dns_accounts(id TEXT PRIMARY KEY,body TEXT NOT NULL,secret BLOB NOT NULL);`); err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func Open(s *store.Store, dir string) (*Vault, error) {
 			return nil, err
 		}
 		if count > 0 {
-			return nil, fmt.Errorf("DDNS master key missing; restore it from backup")
+			return nil, fmt.Errorf("DNS master key missing; restore it from backup")
 		}
 		key = make([]byte, 32)
 		if _, err = rand.Read(key); err != nil {
@@ -60,7 +60,7 @@ func Open(s *store.Store, dir string) (*Vault, error) {
 		return nil, err
 	}
 	if len(key) != 32 {
-		return nil, fmt.Errorf("invalid DDNS master key")
+		return nil, fmt.Errorf("invalid DNS master key")
 	}
 	return &Vault{store: s, key: key}, nil
 }
