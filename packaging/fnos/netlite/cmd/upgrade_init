@@ -1,0 +1,3 @@
+#!/bin/bash
+# Preserve application data; never touch system Web services.
+exit 0

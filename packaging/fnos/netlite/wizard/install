@@ -1,0 +1,11 @@
+[
+  {
+    "stepTitle": "NetLite 安装说明",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "管理界面使用 18780 端口。首次启动后，从应用私有数据目录 admin-token 获取管理令牌。应用不接管 fnOS 系统 Web 服务；反代请使用空闲高位端口。"
+      }
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+appname=netlite
+version=0.1.0
+display_name=NetLite
+desc=轻量网络管理：DDNS、HTTPS 证书、HTTP(S) 反向代理。
+platform=x86
+source=thirdparty
+maintainer=NetLite
+distributor=NetLite
+desktop_uidir=ui
+desktop_applaunchname=netlite.Application
+service_port=18780
+checkport=true
+ctl_stop=true
+disable_authorization_path=true

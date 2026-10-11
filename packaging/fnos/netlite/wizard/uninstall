@@ -1,0 +1,11 @@
+[
+  {
+    "stepTitle": "数据保留",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "NetLite 的卸载脚本不会主动删除数据库、证书和凭据。请在卸载前自行备份应用 var / etc；最终保留行为以 fnOS 卸载选项为准。"
+      }
+    ]
+  }
+]

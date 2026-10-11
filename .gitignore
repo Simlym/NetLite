@@ -1,0 +1,11 @@
+data/
+bin/
+dist/
+web/node_modules/
+web/dist/
+tools/
+*.fpk
+.env
+*.log
+packaging/fnos/netlite/app/bin/
+packaging/fnos/netlite/app/web/

@@ -1,0 +1,16 @@
+{
+  ".url": {
+    "netlite.Application": {
+      "title": "NetLite",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "18780",
+      "url": "/",
+      "allUsers": false,
+      "control": {
+        "accessPerm": "readonly"
+      }
+    }
+  }
+}
