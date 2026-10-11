@@ -23,10 +23,11 @@ type Caddy struct {
 	Binary, Data, Admin string
 	HTTPPort, HTTPSPort int
 	Client              *http.Client
+	ResolveAccount      func(string) (model.DNSCredential, error)
 }
 
 func New(binary, data, admin string) *Caddy {
-	return &Caddy{binary, data, admin, 18080, 18443, &http.Client{Timeout: 15 * time.Second}}
+	return &Caddy{Binary: binary, Data: data, Admin: admin, HTTPPort: 18080, HTTPSPort: 18443, Client: &http.Client{Timeout: 15 * time.Second}}
 }
 func (c *Caddy) Render(cfg model.Config) ([]byte, error) {
 	servers := map[string]any{}
@@ -77,7 +78,11 @@ func (c *Caddy) Render(cfg model.Config) ([]byte, error) {
 			}
 			issuer = map[string]any{"module": "acme", "email": x.Email, "ca": ca}
 			if x.Mode == "dns" {
-				issuer["challenges"] = map[string]any{"dns": map[string]any{"provider": map[string]any{"name": x.Provider, "api_token": "{env." + x.TokenEnv + "}"}}}
+				provider, err := c.dnsProvider(x)
+				if err != nil {
+					return nil, err
+				}
+				issuer["challenges"] = map[string]any{"dns": map[string]any{"provider": provider}}
 			}
 		}
 		domains = append(domains, x.Domains...)
@@ -110,14 +115,18 @@ func (c *Caddy) Validate(ctx context.Context, cfg model.Config) error {
 	}
 	for _, x := range cfg.Certificates {
 		if x.Mode == "dns" {
+			provider, e := c.dnsProvider(x)
+			if e != nil {
+				return e
+			}
 			found := false
 			for _, m := range mods {
-				found = found || m == "dns.providers."+x.Provider
+				found = found || m == "dns.providers."+provider["name"].(string)
 			}
 			if !found {
-				return fmt.Errorf("Caddy missing dns.providers.%s; build with xcaddy", x.Provider)
+				return fmt.Errorf("Caddy missing dns.providers.%s; build with xcaddy", provider["name"])
 			}
-			if os.Getenv(x.TokenEnv) == "" {
+			if x.AccountID == "" && os.Getenv(x.TokenEnv) == "" {
 				return fmt.Errorf("missing credential environment %s", x.TokenEnv)
 			}
 		}
@@ -126,18 +135,13 @@ func (c *Caddy) Validate(ctx context.Context, cfg model.Config) error {
 	if e != nil {
 		return e
 	}
-	f, e := os.CreateTemp(c.Data, "validate-*.json")
+	b, e = c.runtimeConfig(b)
 	if e != nil {
 		return e
 	}
-	name := f.Name()
-	defer os.Remove(name)
-	if _, e = f.Write(b); e != nil {
-		f.Close()
-		return e
-	}
-	f.Close()
-	if e = exec.CommandContext(ctx, c.Binary, "validate", "--config", name).Run(); e != nil {
+	cmd := exec.CommandContext(ctx, c.Binary, "validate", "--config", "-")
+	cmd.Stdin = bytes.NewReader(b)
+	if e = cmd.Run(); e != nil {
 		return fmt.Errorf("Caddy validation failed; check configuration and plugins")
 	}
 	return nil
@@ -150,7 +154,11 @@ func (c *Caddy) Apply(ctx context.Context, cfg model.Config) error {
 	if e != nil {
 		return e
 	}
-	req, _ := http.NewRequestWithContext(ctx, "POST", "http://"+c.Admin+"/load", bytes.NewReader(b))
+	runtime, e := c.runtimeConfig(b)
+	if e != nil {
+		return e
+	}
+	req, _ := http.NewRequestWithContext(ctx, "POST", "http://"+c.Admin+"/load", bytes.NewReader(runtime))
 	req.Header.Set("Content-Type", "application/json")
 	res, e := c.Client.Do(req)
 	if e != nil {
@@ -199,7 +207,16 @@ func (c *Caddy) Run(ctx context.Context) error {
 		return e
 	}
 	defer log.Close()
-	cmd := exec.Command(c.Binary, "run", "--config", config)
+	b, e := os.ReadFile(config)
+	if e != nil {
+		return e
+	}
+	b, e = c.runtimeConfig(b)
+	if e != nil {
+		return e
+	}
+	cmd := exec.Command(c.Binary, "run", "--config", "-")
+	cmd.Stdin = bytes.NewReader(b)
 	cmd.Stdout = log
 	cmd.Stderr = log
 	if e = cmd.Start(); e != nil {

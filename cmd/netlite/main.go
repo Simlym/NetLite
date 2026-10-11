@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"netlite/internal/ddns"
+	"netlite/internal/ddnsgo"
 	"netlite/internal/model"
 	"netlite/internal/proxy"
 	"netlite/internal/store"
@@ -49,6 +50,7 @@ func run() error {
 	web := flag.String("web", "web/dist", "built frontend directory")
 	binary := flag.String("caddy", "caddy", "independent Caddy executable")
 	admin := flag.String("caddy-admin", "127.0.0.1:20190", "private Caddy admin")
+	ddnsBinary := flag.String("ddns-go", "", "optional ddns-go v6.17.7 executable")
 	noCaddy := flag.Bool("no-caddy", false, "development only: CRUD without engine")
 	flag.Parse()
 	host, port, e := net.SplitHostPort(*admin)
@@ -106,6 +108,12 @@ func run() error {
 	var configMu sync.Mutex
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	ddnsService, e := ddnsgo.OpenService(ctx, s, *ddnsBinary, filepath.Join(*data, "ddns-go"))
+	if e != nil {
+		return e
+	}
+	engine.ResolveAccount = ddnsService.ResolveAccount
+	ddnsService.AppliedAccountReference = engine.AccountReferenced
 	errCh := make(chan error, 1)
 	engineDone := make(chan struct{})
 	if !*noCaddy {
@@ -140,6 +148,22 @@ func run() error {
 				next.ServeHTTP(w, r)
 			})
 		})
+		ddnsRouter := ddnsService.Router()
+		r.Mount("/ddns-go", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			configMu.Lock()
+			defer configMu.Unlock()
+			ddnsRouter.ServeHTTP(w, req)
+		}))
+		r.Mount("/dns", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			configMu.Lock()
+			defer configMu.Unlock()
+			ddnsRouter.ServeHTTP(w, req)
+		}))
+		r.Get("/dns-capabilities", func(w http.ResponseWriter, r *http.Request) {
+			check, stop := context.WithTimeout(r.Context(), 10*time.Second)
+			defer stop()
+			respond(w, 200, map[string]any{"certificate_providers": engine.DNSCapabilities(check)})
+		})
 		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 			c, e := s.Load()
 			if e != nil {
@@ -164,6 +188,14 @@ func run() error {
 			}
 			if e := c.Validate(managePort, adminPort); e != nil {
 				fail(w, 400, e)
+				return
+			}
+			if e := ddnsService.ValidateCertificates(c); e != nil {
+				fail(w, 400, e)
+				return
+			}
+			if err := ddnsService.ValidateLegacy(c); err != nil {
+				fail(w, 409, err)
 				return
 			}
 			c, e := s.Save(c)
@@ -193,6 +225,8 @@ func run() error {
 			respond(w, 200, view)
 		})
 		r.Post("/proxy/validate", func(w http.ResponseWriter, r *http.Request) {
+			configMu.Lock()
+			defer configMu.Unlock()
 			c, e := s.Load()
 			if e == nil {
 				check, stop := context.WithTimeout(r.Context(), 30*time.Second)
@@ -279,6 +313,8 @@ func run() error {
 			cancel()
 		}
 	}()
+	ddnsDone := make(chan struct{})
+	go func() { defer close(ddnsDone); ddnsService.Run(ctx) }()
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()
 	log.Printf("NetLite listening on %s; management token is in %s", *listen, tokenPath)
@@ -288,6 +324,7 @@ func run() error {
 	srv.Shutdown(shutdown)
 	<-engineDone
 	<-workerDone
+	<-ddnsDone
 	select {
 	case e := <-errCh:
 		return e

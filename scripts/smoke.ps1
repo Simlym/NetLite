@@ -26,6 +26,8 @@ try {
  $token=Get-Content -LiteralPath "$data/admin-token" -Raw;$headers=@{Authorization="Bearer $token"}
  try{Invoke-RestMethod 'http://127.0.0.1:19780/api/config' | Out-Null;throw 'Unauthenticated access allowed'}catch{if($_.Exception.Response.StatusCode -ne 401){throw}}
  $cfg=Invoke-RestMethod 'http://127.0.0.1:19780/api/config' -Headers $headers
+ $view=Invoke-RestMethod 'http://127.0.0.1:19780/api/proxy/config' -Headers $headers
+ if(!$view.draft -or $null -ne $view.applied){throw 'Configuration view must expose draft and absent applied checkpoint'}
  $cfg.routes=@(@{id='http';domain='plain.localhost';scheme='http';port=19081;upstream='http://127.0.0.1:19881';certificate_id='';enabled=$true},@{id='https';domain='localhost';scheme='https';port=19444;upstream='http://127.0.0.1:19881';certificate_id='local';enabled=$true})
  $cfg.certificates=@(@{id='local';domains=@('localhost');mode='internal';email='';provider='';token_env='';staging=$false})
  $body=$cfg | ConvertTo-Json -Depth 10
@@ -33,6 +35,8 @@ try {
  try{Invoke-RestMethod 'http://127.0.0.1:19780/api/config' -Headers $headers -Method Put -ContentType 'application/json' -Body $body | Out-Null;throw 'Stale update allowed'}catch{if($_.Exception.Response.StatusCode -ne 409){throw}}
  Invoke-RestMethod 'http://127.0.0.1:19780/api/proxy/validate' -Headers $headers -Method Post | Out-Null
  Invoke-RestMethod 'http://127.0.0.1:19780/api/proxy/apply' -Headers $headers -Method Post | Out-Null
+ $view=Invoke-RestMethod 'http://127.0.0.1:19780/api/proxy/config' -Headers $headers
+ if(!$view.draft -or !$view.applied){throw 'Configuration view missing applied checkpoint'}
  $plain=Invoke-WebRequest 'http://127.0.0.1:19081/hello' -Headers @{Host='plain.localhost'}
  if($plain.Content -notmatch 'upstream:/hello'){throw 'HTTP proxy failed'}
  $secure=$null

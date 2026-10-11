@@ -25,13 +25,14 @@ type Route struct {
 	Enabled       bool   `json:"enabled"`
 }
 type Certificate struct {
-	ID       string   `json:"id"`
-	Domains  []string `json:"domains"`
-	Mode     string   `json:"mode"`
-	Email    string   `json:"email"`
-	Provider string   `json:"provider"`
-	TokenEnv string   `json:"token_env"`
-	Staging  bool     `json:"staging"`
+	ID        string   `json:"id"`
+	Domains   []string `json:"domains"`
+	Mode      string   `json:"mode"`
+	Email     string   `json:"email"`
+	Provider  string   `json:"provider"`
+	TokenEnv  string   `json:"token_env"`
+	AccountID string   `json:"account_id,omitempty"`
+	Staging   bool     `json:"staging"`
 }
 type DDNS struct {
 	ID       string `json:"id"`
@@ -102,8 +103,16 @@ func (c Config) Validate(reserved ...int) error {
 				return fmt.Errorf("wildcard requires DNS-01")
 			}
 		}
-		if x.Mode == "dns" && (x.Provider != "cloudflare" || !env.MatchString(x.TokenEnv)) {
-			return fmt.Errorf("DNS-01 currently supports cloudflare with token_env")
+		if x.Mode == "dns" {
+			if x.AccountID != "" {
+				if !ident.MatchString(x.AccountID) || x.Provider != "" || x.TokenEnv != "" {
+					return fmt.Errorf("DNS account reference cannot be mixed with legacy provider/token_env")
+				}
+			} else if x.Provider != "cloudflare" || !env.MatchString(x.TokenEnv) {
+				return fmt.Errorf("DNS-01 requires a DNS account or legacy cloudflare token_env")
+			}
+		} else if x.AccountID != "" {
+			return fmt.Errorf("DNS account is only used for DNS-01")
 		}
 		if strings.ContainsAny(x.Email, "\r\n") {
 			return fmt.Errorf("invalid email")

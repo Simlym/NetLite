@@ -38,7 +38,7 @@ func redact(v any) any {
 			name := strings.ToLower(key)
 			sensitive := strings.Contains(name, "token") || strings.Contains(name, "password") || strings.Contains(name, "secret") || strings.Contains(name, "private_key") || name == "api_key"
 			if sensitive {
-				if s, ok := item.(string); ok && strings.HasPrefix(s, "{env.") && strings.HasSuffix(s, "}") {
+				if s, ok := item.(string); ok && (strings.HasPrefix(s, "{env.") || strings.HasPrefix(s, "{netlite.dns.")) && strings.HasSuffix(s, "}") {
 					continue
 				}
 				value[key] = "[REDACTED]"

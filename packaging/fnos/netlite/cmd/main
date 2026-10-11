@@ -27,7 +27,7 @@ case "${1:-}" in
    . "$TRIM_PKGETC/credentials.env"
    set +a
   fi
-  nohup "$BIN" --listen 0.0.0.0:18780 --data "$TRIM_PKGVAR" --web "$TRIM_APPDEST/web" --caddy "$TRIM_APPDEST/bin/caddy" --caddy-admin 127.0.0.1:20190 >> "$TRIM_PKGVAR/netlite.log" 2>&1 < /dev/null &
+  nohup "$BIN" --listen 0.0.0.0:18780 --data "$TRIM_PKGVAR" --web "$TRIM_APPDEST/web" --caddy "$TRIM_APPDEST/bin/caddy" --caddy-admin 127.0.0.1:20190 --ddns-go "$TRIM_APPDEST/bin/ddns-go" >> "$TRIM_PKGVAR/netlite.log" 2>&1 < /dev/null &
   echo "$!" > "$PID_FILE"
   for i in {1..10}; do
    sleep 1

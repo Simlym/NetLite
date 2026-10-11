@@ -1,0 +1,30 @@
+// NetLite structured event bridge for ddns-go v6.17.7.
+// Does not change provider requests or expose headers, credentials, URLs or bodies.
+package config
+import("encoding/json";"fmt";"io";"net/http";"os";"strings";"sync";"time")
+var netliteOutput io.Writer=os.Stdout
+var netliteLock sync.Mutex
+var netliteRequests,netliteUpdates int
+func netliteEmit(event map[string]any){event["at"]=time.Now().UTC();event["schema"]=1;b,e:=json.Marshal(event);if e==nil{fmt.Fprintf(netliteOutput,"NETLITE_DDNS_EVENT %s\n",b)}}
+func NetLiteBegin(conf *DnsConfig){netliteLock.Lock();defer netliteLock.Unlock();netliteRequests=0;netliteUpdates=0;netliteEmit(map[string]any{"event":"check_started"})}
+func NetLiteIP(domains Domains,conf *DnsConfig){netliteLock.Lock();defer netliteLock.Unlock();netliteEmit(map[string]any{"event":"ip","ipv4":domains.Ipv4Addr,"ipv6":domains.Ipv6Addr})}
+func netliteResult(enabled bool,ip string,domains []*Domain)string{
+ if !enabled{return "disabled"};if ip==""{return "ip_failed"};if len(domains)==0{return "invalid_domain"}
+ result:="unchanged";for _,d:=range domains{if d.UpdateStatus==UpdatedFailed{return "failed"};if d.UpdateStatus==UpdatedSuccess{result="success"}};return result
+}
+func NetLiteEnd(domains Domains,conf *DnsConfig){netliteLock.Lock();defer netliteLock.Unlock();netliteEmit(map[string]any{"event":"check_finished","ipv4":domains.Ipv4Addr,"ipv6":domains.Ipv6Addr,"ipv4_result":netliteResult(conf.Ipv4.Enable,domains.Ipv4Addr,domains.Ipv4Domains),"ipv6_result":netliteResult(conf.Ipv6.Enable,domains.Ipv6Addr,domains.Ipv6Domains),"provider_requests":netliteRequests,"update_requests":netliteUpdates})}
+type netliteTransport struct{base http.RoundTripper;provider string}
+func NetLiteObserveClient(c *http.Client,provider string)*http.Client{base:=c.Transport;if base==nil{base=http.DefaultTransport};c.Transport=netliteTransport{base,provider};return c}
+func netliteAction(provider string,r *http.Request)string{
+ switch provider{
+ case "cloudflare":if r.Method=="POST"{return "create"};if r.Method=="PATCH"||r.Method=="PUT"{return "update"}
+ case "dnspod":if strings.HasSuffix(r.URL.Path,"/Record.Create"){return "create"};if strings.HasSuffix(r.URL.Path,"/Record.Modify"){return "update"}
+ case "tencentcloud":switch r.Header.Get("X-TC-Action"){case "CreateRecord":return "create";case "ModifyRecord","ModifyDynamicDNS":return "update"}
+ case "alidns":switch r.URL.Query().Get("Action"){case "AddDomainRecord":return "create";case "UpdateDomainRecord":return "update"}
+ };return "query"
+}
+func(t netliteTransport)RoundTrip(r *http.Request)(*http.Response,error){
+ action:=netliteAction(t.provider,r);netliteLock.Lock();netliteRequests++;if action!="query"{netliteUpdates++};netliteEmit(map[string]any{"event":"provider_request","action":action,"provider_requests":netliteRequests,"update_requests":netliteUpdates});netliteLock.Unlock()
+ response,err:=t.base.RoundTrip(r)
+ code:=0;if response!=nil{code=response.StatusCode};netliteLock.Lock();netliteEmit(map[string]any{"event":"provider_response","http_status":code,"network_error":err!=nil});netliteLock.Unlock();return response,err
+}

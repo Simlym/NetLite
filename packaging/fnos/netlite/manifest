@@ -1,5 +1,5 @@
 appname=netlite
-version=0.1.1
+version=0.1.4
 display_name=NetLite
 desc=轻量网络管理：DDNS、HTTPS 证书、HTTP(S) 反向代理。
 platform=x86

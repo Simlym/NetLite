@@ -1,12 +1,14 @@
 # NetLite
 
-轻量跨平台网络管理工具。当前为 0.1.1 MVP，第一目标为 fnOS 原生 FPK。
+轻量跨平台网络管理工具。当前为 0.1.4 MVP，第一目标为 fnOS 原生 FPK。
+
+DDNS 已接入独立 ddns-go v6.17.7：账号、任务、加密凭据、启停和立即检查。旧版 Cloudflare 任务保留，需先停用旧任务再新建；已接入 IP、检查时间、查询/更新请求次数与同步结果。详见 [DDNS-INTEGRATION.md](docs/DDNS-INTEGRATION.md)。
 
 ## 已实现
 
 - Go + chi API，SQLite 持久化；Vue 3 + TypeScript 管理面板。
 - 按域名、端口的 HTTP / HTTPS 反向代理；HTTP 和 HTTPS 上游、WebSocket（由 Caddy 实现）。支持编辑、删除、启停规则。
-- 证书策略：内部 CA、Let's Encrypt ACME、Cloudflare DNS-01（包含泛域名）；自动签发及续期由独立 Caddy 负责。
+- 证书策略：内部 CA、Let's Encrypt ACME、四厂商 DNS-01（包含泛域名）；自动签发及续期由独立 Caddy 负责。
 - Cloudflare DDNS：A / AAAA，定时更新、立即更新；指定 IP 或自动发现公网 IP。核对记录身份后仅 PATCH content，保留 TTL / proxied 等字段。
 - 管理令牌鉴权；SQLite 修订号防止过期页面覆盖新配置；反代/证书保存与应用分开。
 - 独立 Caddy 子进程、专用管理端口、应用私有证书目录；退出时关闭自己的 Caddy，Caddy 意外退出时后端退出并报告失败。
@@ -20,7 +22,7 @@
 
 ~~~powershell
 cd E:\git\NetLite
-# 带 Cloudflare 插件的 Windows Caddy；首次构建需要联网下载 Go 依赖
+# 带四个 DNS 插件的 Windows Caddy；首次构建需要联网下载 Go 依赖
 .\scripts\build-caddy.ps1 -OS windows
 .\scripts\dev.ps1
 ~~~
@@ -50,10 +52,11 @@ New-Item -ItemType Directory tools -Force
 Invoke-WebRequest https://static2.fnnas.com/fnpack/fnpack-1.2.3-windows-amd64 -OutFile tools/fnpack.exe
 .\tools\fnpack.exe --help
 .\scripts\build-caddy.ps1 -OS linux -Arch amd64
+.\scripts\build-ddns-go.ps1 -Source E:\git\ddns-go -OS linux -Arch amd64
 .\scripts\build-fpk.ps1 -Arch amd64
 ~~~
 
-输出：dist/netlite-0.1.1-amd64.fpk。此包使用 platform=x86，包含 Linux amd64 Go 后端、Caddy（Cloudflare 插件）、预构建前端，不依赖 NAS 的 Go / Node / Docker。
+输出：dist/netlite-0.1.4-amd64.fpk。此包使用 platform=x86，包含 Linux amd64 Go 后端、Caddy（四个 DNS 插件）、预构建前端，不依赖 NAS 的 Go / Node / Docker。
 
 ARM 可使用 -Arch arm64 分别构建 Caddy 和 FPK，但尚未完成 ARM 实机验证。脚本检查 Caddy 为正确架构的 Linux ELF，避免把 Windows .exe 打入 FPK。打包使用 dist 下新建的暂存目录，不改动源码模板。
 
@@ -69,9 +72,9 @@ ARM 可使用 -Arch arm64 分别构建 Caddy 和 FPK，但尚未完成 ARM 实�
 
 私有 Caddy Admin 是 127.0.0.1:20190，启动时若已被其他服务占用则拒绝启动。管理界面使用 18780；这两个端口不能作为代理规则端口。系统端口、现有其他应用端口仍需在实机确认。
 
-## 配置 Cloudflare 凭据
+## 旧 Cloudflare 环境变量配置（兼容）
 
-令牌以环境变量引用，不存入 SQLite，不通过 API 传输、不显示在 UI。Cloudflare 令牌建议限制到所管理的 Zone；DDNS 需要 DNS 编辑权限，DNS-01 插件需要 Zone 读取和 DNS 编辑权限。插件的具体要求见官方仓库。
+本节仅描述旧配置；新功能请在公共 DNS 账号页面添加加密保存的凭据。旧令牌以环境变量引用，不存入 SQLite，不通过 API 传输、不显示在 UI。Cloudflare 令牌建议限制到所管理的 Zone；DDNS 需要 DNS 编辑权限，DNS-01 插件需要 Zone 读取和 DNS 编辑权限。插件的具体要求见官方仓库。
 
 Windows：在启动 NetLite 的终端设置变量；Caddy 子进程继承变量。
 
@@ -90,7 +93,7 @@ NETLITE_CF_TOKEN='你的 Cloudflare API Token'
 
 DDNS：在 Cloudflare 创建目标 A 或 AAAA 记录，取得 Zone ID、Record ID，填入记录域名、类型以及变量名 NETLITE_CF_TOKEN。留空 IP 时分别查询 https://api4.ipify.org / https://api6.ipify.org；IPv6 不可用时 AAAA 会显示错误并保持原记录。保存并启用后约每 10 秒检查调度，到设定间隔时同步；手动按钮与任务串行执行。
 
-DNS-01：在证书页面选择 DNS-01，填写 *.example.com 和需要的根域名 example.com。根域名不被泛域名覆盖。应用前检查 dns.providers.cloudflare 模块和变量是否存在；缺少插件时返回可读错误。当前 DNS 插件注册仅支持 Cloudflare，其他插件需增加 provider 字段映射及校验，不能填写任意 Caddy JSON。
+DNS-01：在证书页面选择 DNS-01，填写 *.example.com 和需要的根域名 example.com。根域名不被泛域名覆盖。应用前检查 dns.providers.cloudflare 模块和变量是否存在；缺少插件时返回可读错误。新配置可引用公共 DNS 账号，支持 Cloudflare、DNSPod、腾讯云、阿里云；不能填写任意 Caddy JSON。
 
 ## HTTPS 和端口
 
@@ -160,3 +163,24 @@ DSM SPK：下一阶段复用静态 Linux 构建，单独实现 DSM 生命周期�
 Windows 打包补充：实测 fnpack 1.2.3 在 Windows 生成的归档中脚本及二进制默认 0666。scripts/normalize-fpk.py 使用 Python 3 将 cmd/* 与 bin/netlite、bin/caddy 改为 0755，并按实测官方契约重新计算 app.tgz 的 MD5 更新 manifest.checksum；输入 checksum 不符合契约时直接拒绝处理。构建脚本已自动执行并回读核验。该步骤只处理生成的包，不改动 NAS 文件。构建机另需 Python 3。
 
 UI 更新：添加与编辑通过弹窗完成，主页面展示完整列表；删除需确认；点击「查看 Caddy 配置」可切换保存的配置草稿和最近成功应用的配置，查看内容会隐藏凭据值。
+
+## ddns-go 任务管理（0.1.3）
+
+Windows 先运行 `scripts/build-ddns-go.ps1 -Source E:\git\ddns-go -OS windows`，再使用 dev.ps1；脚本会自动传入引擎路径。自行启动可传 `--ddns-go tools/ddns-go-windows-amd64.exe`。FPK 自带 Linux ddns-go 和 MIT 许可证，并使用 package 用户运行。
+
+先在“DNS 账号”页面添加账号，再在动态 DNS 页面添加任务。支持 DNSPod.cn（ID/Token）、腾讯云 DNSPod（SecretId/SecretKey）、Cloudflare 和阿里云；多个域名可用逗号分隔，支持 A/AAAA 和泛域名。IP 获取目前为 HTTP(S) 查询接口，不支持网卡选择或固定 IP 的新任务表单；旧任务仍保留原有指定 IP 功能。
+
+任务默认停用。启用后 ddns-go 可能创建记录，TTL 使用任务设置；迁移旧 Cloudflare 任务前先停用旧任务。新旧任务同时管理同一记录会被拒绝。立即检查表示已重启执行检查，不代表 DNS 更新成功；本版显示最近获取的 IPv4/IPv6、最近检查时间、本轮接口/更新请求次数与同步结果；更新请求计数表示尝试提交，成功由 ddns-go 的服务商处理结果确认。实际服务商权限、公网同步和 fnOS 实机尚未验证。
+
+账号密钥以 AES-GCM 加密存入 SQLite，API 不回显密钥；编辑时留空保留原密钥。生成的 ddns-go 配置含解密后的密钥，保存在私有目录，Linux 权限 0600/0700，Windows 限制账号 ACL。备份应同时保留数据库和应用数据目录 `ddns-go/master.key`；丢失该密钥无法解密账号，不会自动覆盖生成新密钥。
+
+本地无真实 DNS 的状态验证：`scripts/smoke-ddns-status.ps1`。列表突出域名、IP 与同步结果；请求次数与完整时间在“详情”查看，服务商账号可展开管理。
+
+
+## 公共 DNS 账号与证书（0.1.4）
+
+“DNS 账号”页面统一管理凭据，DDNS 任务和 DNS-01 证书通过 account_id 引用同一个账号。申请证书不需要启用 DDNS。证书选择器只显示当前 Caddy 二进制已安装插件支持的账号；随包包含 Cloudflare、DNSPod.cn（ID/Token）、腾讯云 DNSPod、阿里云插件。
+
+新证书选择 DNS-01 后直接选择 DNS 账号。原 Cloudflare token_env 配置保持兼容，可编辑切换为账号引用。账号和密钥不会复制到证书业务配置；代理预览和 applied.json 只保存引用，运行时通过标准输入或回环 Admin 注入。凭据变更后 DDNS 自动重载，证书需“应用到代理”。被任务、草稿证书或已应用配置引用的账号禁止删除；移除证书后需应用配置才能解除已应用引用。
+
+本地开发请先构建新的四插件 Caddy；dev.ps1 优先使用 dist/caddy-windows-amd64.exe。已运行的旧进程不自动替换。详细说明见 docs/DNS-ACCOUNTS.md。fnOS 实机、真实 DNS-01 签发和续期尚未验证。
