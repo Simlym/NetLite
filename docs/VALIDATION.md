@@ -1,3 +1,5 @@
+> 本文包含此前版本的验证记录。当前 DDNS 已内置，原 ddns-go 构建、二进制及测试结果不适用于当前引擎；当前验证要求见 DDNS-INTEGRATION.md。
+
 # 本地验证记录
 
 DDNS 引擎适配阶段：本地 ddns-go v6.17.7 已构建 Windows/Linux amd64，Windows 版本检查通过；生成配置通过上游原生 YAML 解析验证。internal/ddnsgo 的配置校验与进程夹具测试、go test ./...、go vet ./... 通过。尚未接入运行时调度和界面，未进行真实 DNS 更新或 fnOS 实机验证。见 DDNS-INTEGRATION.md。
@@ -46,3 +48,4 @@ fnOS 实机安装、升级及真实服务商更新/公网传播验证未执行�
 0.1.4 公共 DNS 账号：既有表和主密钥兼容、证书引用与旧环境变量配置、草稿及已应用引用保护、轮换、配置预览/持久化不含密钥、运行时注入测试通过。完整 go test ./...、go vet ./...、前端构建、代理 smoke 通过。实际构建的四插件 Windows Caddy 对 Cloudflare/DNSPod/腾讯云/阿里云配置 validate 均通过；运行载荷用模拟 Admin 接收，没有真实签发或 DNS 请求。
 
 隔离浏览器使用虚构账号、停用的 DDNS 任务；证书选择已有 DNSPod 账号后保存 account_id=shared，GET 配置仅含引用，预览不含 Token，真实 Caddy 配置校验通过。docs/certificate-dns-account.png 为该测试截图。fnOS 实机、真实 DNS-01 签发与续期未验证。
+

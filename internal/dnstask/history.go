@@ -1,4 +1,4 @@
-package ddnsgo
+package dnstask
 
 import "encoding/json"
 
@@ -43,3 +43,4 @@ func (s *Service) history(id string, limit int) ([]State, error) {
 	}
 	return out, rows.Err()
 }
+

@@ -12,7 +12,6 @@ type Config struct {
 	Revision     int64         `json:"revision"`
 	Routes       []Route       `json:"routes"`
 	Certificates []Certificate `json:"certificates"`
-	DDNS         []DDNS        `json:"ddns"`
 }
 type Route struct {
 	ID            string `json:"id"`
@@ -34,19 +33,6 @@ type Certificate struct {
 	AccountID string   `json:"account_id,omitempty"`
 	Staging   bool     `json:"staging"`
 }
-type DDNS struct {
-	ID       string `json:"id"`
-	Provider string `json:"provider"`
-	ZoneID   string `json:"zone_id"`
-	RecordID string `json:"record_id"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	IP       string `json:"ip"`
-	TokenEnv string `json:"token_env"`
-	Interval int    `json:"interval_seconds"`
-	Enabled  bool   `json:"enabled"`
-}
-
 var ident = regexp.MustCompile("^[a-zA-Z0-9_-]{1,64}$")
 var env = regexp.MustCompile("^[A-Z][A-Z0-9_]{0,100}$")
 var label = regexp.MustCompile("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -77,7 +63,7 @@ func Covers(pattern, host string) bool {
 	return strings.HasSuffix(host, suffix) && !strings.Contains(strings.TrimSuffix(host, suffix), ".")
 }
 func (c Config) Validate(reserved ...int) error {
-	if len(c.Routes) > 200 || len(c.Certificates) > 100 || len(c.DDNS) > 100 {
+	if len(c.Routes) > 200 || len(c.Certificates) > 100 {
 		return fmt.Errorf("too many entries")
 	}
 	seen := map[string]bool{}
@@ -163,26 +149,6 @@ func (c Config) Validate(reserved ...int) error {
 			routes[key] = true
 		}
 	}
-	for _, d := range c.DDNS {
-		if !ident.MatchString(d.ID) || seen["d"+d.ID] {
-			return fmt.Errorf("invalid/duplicate DDNS id")
-		}
-		seen["d"+d.ID] = true
-		if d.Provider != "cloudflare" || !ident.MatchString(d.ZoneID) || !ident.MatchString(d.RecordID) || !Domain(d.Name) || strings.HasPrefix(d.Name, "*.") || !env.MatchString(d.TokenEnv) {
-			return fmt.Errorf("invalid Cloudflare DDNS fields")
-		}
-		if d.Type != "A" && d.Type != "AAAA" {
-			return fmt.Errorf("DDNS type must be A/AAAA")
-		}
-		if d.Interval < 60 || d.Interval > 86400 {
-			return fmt.Errorf("interval must be 60..86400")
-		}
-		if d.IP != "" {
-			ip := net.ParseIP(d.IP)
-			if ip == nil || (d.Type == "A") != (ip.To4() != nil) {
-				return fmt.Errorf("IP family mismatch")
-			}
-		}
-	}
 	return nil
 }
+

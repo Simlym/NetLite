@@ -1,4 +1,4 @@
-package ddnsgo
+package dnstask
 
 import (
 	"context"
@@ -15,7 +15,7 @@ func TestCertificateAccountReferences(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer db.DB.Close()
-	s, e := OpenService(context.Background(), db, "", filepath.Join(dir, "private"))
+	s, e := OpenService(context.Background(), db, filepath.Join(dir, "private"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -55,3 +55,4 @@ func TestCertificateAccountReferences(t *testing.T) {
 		t.Fatal("dangling certificate account accepted")
 	}
 }
+
