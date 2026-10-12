@@ -4,7 +4,7 @@ $root=Split-Path $PSScriptRoot -Parent
 Set-Location $root
 if (!$Fnpack) {$Fnpack=Join-Path $root 'tools/fnpack.exe'}
 if (!$CaddyBinary) {$CaddyBinary=Join-Path $root ('dist/caddy-linux-'+$Arch)}
-if (!(Test-Path $CaddyBinary)) {throw 'Supply a Linux Caddy binary with the cloudflare plugin; see scripts/build-caddy.ps1.'}
+if (!(Test-Path $CaddyBinary)) {throw 'Supply a standard Linux Caddy binary; see scripts/build-caddy.ps1.'}
 $CaddyBinary=(Resolve-Path -LiteralPath $CaddyBinary).Path
 $Fnpack=(Resolve-Path -LiteralPath $Fnpack).Path
 $header=[IO.File]::ReadAllBytes($CaddyBinary)

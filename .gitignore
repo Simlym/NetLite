@@ -9,3 +9,6 @@ tools/
 *.log
 packaging/fnos/netlite/app/bin/
 packaging/fnos/netlite/app/web/
+
+__pycache__/
+*.pyc

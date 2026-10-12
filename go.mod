@@ -3,6 +3,7 @@ module netlite
 go 1.25.0
 
 require (
+ github.com/mholt/acmez/v3 v3.1.2
 	github.com/go-chi/chi/v5 v5.2.3
 	modernc.org/sqlite v1.39.1
 )
@@ -19,3 +20,4 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+

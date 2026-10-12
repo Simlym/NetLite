@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+ "netlite/internal/dnsprovider"
+ "netlite/internal/model"
 	"strings"
 	"sync"
 	"time"
@@ -59,14 +61,14 @@ type Engine struct {
 	history    map[string]State
 	slots      chan struct{}
 	client     *http.Client
-	endpoints  endpoints
+	provider   func(model.DNSCredential) *dnsprovider.Client
 	onFinished func(string, State) error
 }
 
 func New() *Engine {
 	return &Engine{jobs: map[string]*job{}, history: map[string]State{}, slots: make(chan struct{}, 4),
 		client:    &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
-		endpoints: defaultEndpoints()}
+		provider: dnsprovider.New}
 }
 
 func (e *Engine) Start(ctx context.Context, t Task) error {
@@ -206,7 +208,7 @@ func (e *Engine) getIP(ctx context.Context, source Source, v4 bool) (string, err
 
 func (e *Engine) check(ctx context.Context, t Task) State {
 	s := State{Running: true, Checking: true, LastCheck: time.Now().UTC(), IPv4Result: "disabled", IPv6Result: "disabled"}
-	p := providerAPI{task: t, client: e.client, endpoints: e.endpoints, state: &s, zones: map[string]string{}}
+	p := e.provider(model.DNSCredential{Provider:t.Provider, ID:t.CredentialID, Secret:t.Secret})
 	for i, source := range []Source{t.IPv4, t.IPv6} {
 		if len(source.Domains) == 0 {
 			continue
@@ -227,7 +229,7 @@ func (e *Engine) check(ctx context.Context, t Task) State {
 		for _, domain := range source.Domains {
 			r := RecordResult{Domain: domain, Type: typ, Result: "ip_failed"}
 			if err == nil {
-				changed, syncErr := p.sync(ctx, strings.ToLower(domain), typ, ip)
+				changed, syncErr := p.Sync(ctx, strings.ToLower(domain), typ, ip, t.TTL)
 				r.Result = "unchanged"
 				if syncErr != nil {
 					r.Result, r.Message = "failed", syncErr.Error()
@@ -247,6 +249,9 @@ func (e *Engine) check(ctx context.Context, t Task) State {
 			s.IPv6Result = result
 		}
 	}
+ stats:=p.Stats()
+ s.ProviderRequests,s.UpdateRequests,s.HTTPStatus,s.NetworkError=stats.ProviderRequests,stats.UpdateRequests,stats.HTTPStatus,stats.NetworkError
+ s.LastRequest=stats.LastRequest
 	s.Checking, s.ResultKnown = false, true
 	s.LastFinished = time.Now().UTC()
 	s.Message = "已检查解析记录，无需更新"

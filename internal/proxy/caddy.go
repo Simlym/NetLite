@@ -17,17 +17,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+ "sync"
 )
 
 type Caddy struct {
-	Binary, Data, Admin string
-	HTTPPort, HTTPSPort int
-	Client              *http.Client
-	ResolveAccount      func(string) (model.DNSCredential, error)
+ Binary,Data,Admin string
+ Client *http.Client
+ ResolveCertificate func(model.Certificate)(model.CertificateFiles,error)
+ mu sync.Mutex
 }
 
 func New(binary, data, admin string) *Caddy {
-	return &Caddy{Binary: binary, Data: data, Admin: admin, HTTPPort: 18080, HTTPSPort: 18443, Client: &http.Client{Timeout: 15 * time.Second}}
+	return &Caddy{Binary: binary, Data: data, Admin: admin, Client: &http.Client{Timeout: 15 * time.Second}}
 }
 func (c *Caddy) Render(cfg model.Config) ([]byte, error) {
 	servers := map[string]any{}
@@ -63,44 +64,21 @@ func (c *Caddy) Render(cfg model.Config) ([]byte, error) {
 		}
 		server := map[string]any{"listen": []string{":" + strconv.Itoa(port)}, "routes": routes, "automatic_https": map[string]any{"disable": true}}
 		if rs[0].Scheme == "https" {
-			server["tls_connection_policies"] = []any{map[string]any{}}
+			tlsPolicies:=[]any{}
+   for _,route:=range rs{tlsPolicies=append(tlsPolicies,map[string]any{"match":map[string]any{"sni":[]string{route.Domain}},"certificate_selection":map[string]any{"any_tag":[]string{route.CertificateID}}})}
+   server["tls_connection_policies"]=tlsPolicies
 		}
 		servers["port_"+strconv.Itoa(port)] = server
 	}
-	policies := []any{}
-	domains := []string{}
-	for _, x := range cfg.Certificates {
-		issuer := map[string]any{"module": "internal"}
-		if x.Mode != "internal" {
-			ca := "https://acme-v02.api.letsencrypt.org/directory"
-			if x.Staging {
-				ca = "https://acme-staging-v02.api.letsencrypt.org/directory"
-			}
-			issuer = map[string]any{"module": "acme", "email": x.Email, "ca": ca}
-			if x.Mode == "dns" {
-				provider, err := c.dnsProvider(x)
-				if err != nil {
-					return nil, err
-				}
-				issuer["challenges"] = map[string]any{"dns": map[string]any{"provider": provider}}
-			}
-		}
-		domains = append(domains, x.Domains...)
-		policies = append(policies, map[string]any{"subjects": x.Domains, "issuers": []any{issuer}})
-	}
-	apps := map[string]any{"http": map[string]any{"http_port": c.HTTPPort, "https_port": c.HTTPSPort, "servers": servers}}
-	if len(domains) > 0 {
-		apps["tls"] = map[string]any{"certificates": map[string]any{"automate": domains}, "automation": map[string]any{"policies": policies}}
-	}
-	// No trust-store changes are needed for NetLite's internal test certificates.
-	for _, x := range cfg.Certificates {
-		if x.Mode == "internal" {
-			apps["pki"] = map[string]any{"certificate_authorities": map[string]any{"local": map[string]any{"install_trust": false}}}
-			break
-		}
-	}
-	return json.MarshalIndent(map[string]any{"admin": map[string]any{"listen": c.Admin, "config": map[string]any{"persist": false}}, "storage": map[string]any{"module": "file_system", "root": filepath.Join(c.Data, "certificates")}, "apps": apps}, "", "  ")
+ used:=map[string]bool{};for _,r:=range cfg.Routes{if r.Enabled&&r.Scheme=="https"{used[r.CertificateID]=true}}
+ files:=[]any{}
+ for _,policy:=range cfg.Certificates{if !used[policy.ID]{continue};if c.ResolveCertificate==nil{return nil,fmt.Errorf("certificate resolver unavailable")};material,err:=c.ResolveCertificate(policy);if err!=nil{return nil,err};files=append(files,map[string]any{"certificate":material.CertificateFile,"key":material.PrivateKeyFile,"tags":[]string{policy.ID}});delete(used,policy.ID)}
+ if len(used)>0{return nil,fmt.Errorf("HTTPS route references missing certificate")}
+ apps:=map[string]any{"http":map[string]any{"servers":servers}}
+ if len(files)>0{apps["tls"]=map[string]any{"certificates":map[string]any{"load_files":files}}}
+ return json.MarshalIndent(map[string]any{"admin":map[string]any{"listen":c.Admin,"config":map[string]any{"persist":false}},"apps":apps},"","  ")
 }
+
 func (c *Caddy) Modules(ctx context.Context) ([]string, error) {
 	b, e := exec.CommandContext(ctx, c.Binary, "list-modules").Output()
 	if e != nil {
@@ -109,72 +87,33 @@ func (c *Caddy) Modules(ctx context.Context) ([]string, error) {
 	return strings.Fields(string(b)), nil
 }
 func (c *Caddy) Validate(ctx context.Context, cfg model.Config) error {
-	mods, e := c.Modules(ctx)
-	if e != nil {
-		return fmt.Errorf("Caddy unavailable: %w", e)
-	}
-	for _, x := range cfg.Certificates {
-		if x.Mode == "dns" {
-			provider, e := c.dnsProvider(x)
-			if e != nil {
-				return e
-			}
-			found := false
-			for _, m := range mods {
-				found = found || m == "dns.providers."+provider["name"].(string)
-			}
-			if !found {
-				return fmt.Errorf("Caddy missing dns.providers.%s; build with xcaddy", provider["name"])
-			}
-			if x.AccountID == "" && os.Getenv(x.TokenEnv) == "" {
-				return fmt.Errorf("missing credential environment %s", x.TokenEnv)
-			}
-		}
-	}
-	b, e := c.Render(cfg)
-	if e != nil {
-		return e
-	}
-	b, e = c.runtimeConfig(b)
-	if e != nil {
-		return e
-	}
+ b,e:=c.Render(cfg);if e!=nil{return e}
 	cmd := exec.CommandContext(ctx, c.Binary, "validate", "--config", "-")
 	cmd.Stdin = bytes.NewReader(b)
 	if e = cmd.Run(); e != nil {
-		return fmt.Errorf("Caddy validation failed; check configuration and plugins")
+		return fmt.Errorf("Caddy validation failed; check proxy configuration and certificate files")
 	}
 	return nil
 }
-func (c *Caddy) Apply(ctx context.Context, cfg model.Config) error {
-	if e := c.Validate(ctx, cfg); e != nil {
-		return e
-	}
-	b, e := c.Render(cfg)
-	if e != nil {
-		return e
-	}
-	runtime, e := c.runtimeConfig(b)
-	if e != nil {
-		return e
-	}
-	req, _ := http.NewRequestWithContext(ctx, "POST", "http://"+c.Admin+"/load", bytes.NewReader(runtime))
-	req.Header.Set("Content-Type", "application/json")
-	res, e := c.Client.Do(req)
-	if e != nil {
-		return fmt.Errorf("Caddy reload failed: %w", e)
-	}
-	defer res.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
-	if res.StatusCode != 200 {
-		return fmt.Errorf("Caddy rejected configuration (%d)", res.StatusCode)
-	}
-	// Keep last applied config distinct from the saved draft; restart never activates a draft.
-	tmp := filepath.Join(c.Data, "applied.json.tmp")
-	if e = os.WriteFile(tmp, b, 0600); e != nil {
-		return fmt.Errorf("active config applied but checkpoint failed: %w", e)
-	}
-	return os.Rename(tmp, filepath.Join(c.Data, "applied.json"))
+func(c *Caddy) load(ctx context.Context,b []byte)error{
+ req,err:=http.NewRequestWithContext(ctx,"POST","http://"+c.Admin+"/load",bytes.NewReader(b));if err!=nil{return err};req.Header.Set("Content-Type","application/json")
+ res,err:=c.Client.Do(req);if err!=nil{return fmt.Errorf("Caddy reload failed")};defer res.Body.Close();_,_=io.Copy(io.Discard,io.LimitReader(res.Body,1<<20));if res.StatusCode!=200{return fmt.Errorf("Caddy rejected configuration (%d)",res.StatusCode)};return nil
+}
+func(c *Caddy) Apply(ctx context.Context,cfg model.Config)error{
+ c.mu.Lock();defer c.mu.Unlock();if err:=c.Validate(ctx,cfg);err!=nil{return err};b,err:=c.Render(cfg);if err!=nil{return err}
+ checkpoint,err:=json.Marshal(cfg);if err!=nil{return err};f,err:=os.CreateTemp(c.Data,".proxy-applied-");if err!=nil{return err};tmp:=f.Name();defer os.Remove(tmp)
+ if err=f.Chmod(0600);err==nil{_,err=f.Write(checkpoint)};if err==nil{err=f.Sync()};closeErr:=f.Close();if err==nil{err=closeErr};if err!=nil{return err}
+ previous,err:=c.Applied();if err!=nil{return err}
+ if err=c.load(ctx,b);err!=nil{return err}
+ if err=os.Rename(tmp,filepath.Join(c.Data,"proxy-applied.json"));err!=nil{
+  rollback,renderErr:=c.Render(previous);if renderErr==nil{rollbackCtx,cancel:=context.WithTimeout(context.Background(),15*time.Second);renderErr=c.load(rollbackCtx,rollback);cancel()}
+  if renderErr!=nil{return fmt.Errorf("proxy applied but checkpoint and rollback failed")};return fmt.Errorf("proxy checkpoint failed; previous configuration restored")
+ }
+ return nil
+}
+func(c *Caddy) Applied()(model.Config,error){var cfg model.Config;b,err:=os.ReadFile(filepath.Join(c.Data,"proxy-applied.json"));if os.IsNotExist(err){return cfg,nil};if err!=nil{return cfg,err};err=json.Unmarshal(b,&cfg);return cfg,err}
+func(c *Caddy) ReloadCertificates(ctx context.Context)error{
+ c.mu.Lock();defer c.mu.Unlock();cfg,err:=c.Applied();if err!=nil{return err};if len(cfg.Routes)==0{return nil};if err=c.Validate(ctx,cfg);err!=nil{return err};b,err:=c.Render(cfg);if err!=nil{return err};return c.load(ctx,b)
 }
 func (c *Caddy) Status(ctx context.Context) (map[string]any, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://"+c.Admin+"/config/", nil)
@@ -194,27 +133,13 @@ func (c *Caddy) Run(ctx context.Context) error {
 		return fmt.Errorf("private Caddy admin port occupied: %w", e)
 	}
 	listener.Close()
-	config := filepath.Join(c.Data, "applied.json")
-	if _, e = os.Stat(config); os.IsNotExist(e) {
-		b, _ := c.Render(model.Config{})
-		config = filepath.Join(c.Data, "bootstrap.json")
-		if e = os.WriteFile(config, b, 0600); e != nil {
-			return e
-		}
-	}
+ cfg,e:=c.Applied();if e!=nil{return e}
+ b,e:=c.Render(cfg);if e!=nil{return e}
 	log, e := os.OpenFile(filepath.Join(c.Data, "caddy.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if e != nil {
 		return e
 	}
 	defer log.Close()
-	b, e := os.ReadFile(config)
-	if e != nil {
-		return e
-	}
-	b, e = c.runtimeConfig(b)
-	if e != nil {
-		return e
-	}
 	cmd := exec.Command(c.Binary, "run", "--config", "-")
 	cmd.Stdin = bytes.NewReader(b)
 	cmd.Stdout = log
@@ -244,3 +169,4 @@ func (c *Caddy) Run(ctx context.Context) error {
 		}
 	}
 }
+

@@ -31,3 +31,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## acmez
+
+NetLite uses [mholt/acmez v3.1.2](https://github.com/mholt/acmez/tree/v3.1.2)
+as its ACME protocol client. Copyright 2020 Matthew Holt. Licensed under the
+Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
