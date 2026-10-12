@@ -38,3 +38,5 @@ NetLite uses [mholt/acmez v3.1.2](https://github.com/mholt/acmez/tree/v3.1.2)
 as its ACME protocol client. Copyright 2020 Matthew Holt. Licensed under the
 Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
 
+The complete license text is included at docs/licenses/acmez-LICENSE.txt
+(and licenses/acmez-LICENSE.txt in the FPK).

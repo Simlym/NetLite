@@ -1,60 +1,58 @@
-> DDNS 使用 `/api/dns` 的内置引擎接口，任务与账号字段及执行语义见 [DDNS-INTEGRATION.md](DDNS-INTEGRATION.md)。旧 `/api/ddns/{id}/run` 与配置中的 `ddns` 字段已移除。
-
 # API
 
 全部 /api 请求需要 Authorization: Bearer <admin-token>。/healthz 不需要鉴权，仅表示后端 HTTP 服务存活。
 
+## 代理业务配置
+
 | 方法 | 路径 | 行为 |
 |---|---|---|
-| GET | /api/config | 读取当前已保存草稿及 revision |
-| PUT | /api/config | 完整替换配置；revision 必须匹配，否则 409；字段/业务校验失败 400 |
-| POST | /api/proxy/validate | 用真实 Caddy 校验当前草稿，插件和凭据检查失败 422 |
-| POST | /api/proxy/apply | 校验、加载、保存 applied.json；返回 applied_revision；证书异步签发 |
-| GET | /api/status | Caddy 运行状态/模块 |
-| GET | /api/proxy/config | 生成的草稿及已应用配置，凭据隐藏 |
-| GET | /api/dns/ | 公共 DNS 账号、任务与内置引擎状态 |
+| GET | /api/config | 读取 SQLite 草稿和 revision |
+| PUT | /api/config | 完整替换 routes/certificates，修订冲突 409，业务校验失败 400 |
+| POST | /api/proxy/validate | 检查启用 HTTPS 的证书可用性并用真实引擎校验，失败 422 |
+| POST | /api/proxy/apply | 应用当前草稿并保存业务快照，返回 applied_revision；未就绪或过期证书拒绝应用 |
+| GET | /api/proxy/config | 当前草稿和已应用代理渲染结果；证书未就绪时 draft=null，draft_error 给出原因 |
+| GET | /api/status | 代理运行状态 |
 
-PUT /api/config 是全量代理配置更新；反代/证书仅在 apply 后生效。
-DDNS 通过 /api/dns/tasks 独立保存，启用后自动运行，无需应用代理。
+Config 为 revision、routes 和 certificates。Route 字段为 id/name/domain/port/scheme/upstream/certificate_id/enabled。
+Certificate 字段为 id/domains/mode/email/staging/account_id/renew_before_days。mode 为 internal/acme（HTTP-01）/dns（DNS-01）。
+DNS-01 必须引用公共账号，已移除 provider/token_env。非内部 CA 需要有效邮箱，泛域名只允许 DNS-01。
 
-示例请求：
+示例证书：
 
-~~~json
-{
-  "revision": 0,
-  "routes": [{"id":"app","name":"家庭相册","domain":"app.example.com","port":18443,"scheme":"https","upstream":"http://127.0.0.1:8080","certificate_id":"wildcard","enabled":true}],
-  "certificates": [{"id":"wildcard","domains":["*.example.com","example.com"],"mode":"dns","email":"you@example.com","provider":"cloudflare","token_env":"NETLITE_CF_TOKEN","staging":true}]
-}
-~~~
+```json
+{"id":"wildcard","domains":["*.example.com","example.com"],"mode":"dns","email":"admin@example.com","staging":true,"account_id":"dns-account","renew_before_days":0}
+```
 
-配置不包含密钥。域名使用小写 ASCII（国际域名请用 Punycode），泛域名仅接受最左 *.，不提供任意引擎配置透传。默认私有管理端口不能作为代理端口；上游只接受无路径的 HTTP(S) URL。
+证书保存后自动申请和续期；代理规则只在 apply 后生效。renew_before_days=0 表示自动窗口，或填写 1..60。
+后台证书重载与重启只使用 proxy-applied.json 的业务快照，不激活草稿。代理配置中只有证书文件路径，没有 DNS 密钥或签发策略。
 
-证书模式 internal / acme / dns；DNS-01 新配置使用 account_id；原 provider=cloudflare/token_env 继续兼容。staging=false 使用 Let's Encrypt 正式 CA，默认界面 staging=true。
+## 证书管理
 
-GET /api/proxy/config：鉴权后查看 Caddy 配置草稿及最近成功应用的配置；无已应用配置时 applied=null，凭据值隐藏，仅保留环境变量引用。
+| 方法 | 路径 | 行为 |
+|---|---|---|
+| GET | /api/certificates/ | certificates 状态映射和 http_challenge_address |
+| POST | /api/certificates/{id}/issue | 返回 202 表示排队；不存在 404；失败退避或成功冷却期 409 |
+| GET | /api/certificates/{id}/certificate | PEM 公开证书链，尚未就绪 409 |
+| GET | /api/certificates/root | PEM 内部 CA 公开根证书，不返回私钥 |
 
-代理规则的 `name` 为可选名称 / 备注，仅用于管理展示，不参与代理匹配；旧配置缺省时为空，保存后持久化到 SQLite。
+状态字段：id/status/working/not_after/renew_at/last_issued/next_attempt/attempts/last_error/reload_error。
+status 为 pending/queued/issuing/renewing/ready/failed/expired。
+详细签发、续期、验证和清理行为见 [CERTIFICATES.md](CERTIFICATES.md)。
 
-## 内置 DDNS 与公共 DNS 账号
+## 公共 DNS 与 DDNS
 
-- GET /api/dns/：accounts（仅元数据与 has_secret）、tasks（含 state）、engine=native。
+- GET /api/dns/：accounts（仅元数据和 has_secret）、tasks（含 state）、engine=native。
 - GET /api/dns/accounts：账号元数据。
-- PUT /api/dns/accounts/{id}：id/name/provider/credential_id/secret；secret 留空保留已有密钥，新增必填。返回不含 secret。
-- DELETE /api/dns/accounts/{id}：被任务、证书草稿或已应用配置引用时返回 409。
-- PUT /api/dns/tasks/{id}：id/name/account_id/ipv4_domains/ipv6_domains/ipv4_url/ipv6_url/interval_seconds/ttl/enabled；非法值或启用记录冲突返回 400。
-- DELETE /api/dns/tasks/{id}：取消并等待任务退出，删除任务和检查历史，不删除服务商记录。
-- POST /api/dns/tasks/{id}/run：启用任务排队检查，202 表示已安排，不代表 DNS 更新成功。
-- GET /api/dns/tasks/{id}/history：返回最近 100 条完成结果。
+- PUT /api/dns/accounts/{id}：id/name/provider/credential_id/secret；空 secret 保留原密钥，新增必填。不回显密钥。
+- DELETE /api/dns/accounts/{id}：被任务、保存证书、已应用证书、签发或清理日志引用时 409。
+- PUT /api/dns/tasks/{id}：id/name/account_id/ipv4_domains/ipv6_domains/ipv4_url/ipv6_url/interval_seconds/ttl/enabled；字段或记录冲突 400。
+- DELETE /api/dns/tasks/{id}：停止任务并删除历史，不删除服务商记录。
+- POST /api/dns/tasks/{id}/run：202 表示已排队检查，不表示更新成功。
+- GET /api/dns/tasks/{id}/history：最近 100 条结果。
+- GET /api/dns-capabilities：NetLite 公共 DNS 层支持的 certificate_providers，与 Caddy 模块无关。
 
-provider 为 cloudflare/dnspod/tencentcloud/alidns。账号被任务或证书引用时不能更换服务商。
-state.running 表示任务调度器运行；checking 表示正在检查；result_known 表示当前显示的结果已完成。
-state 包含 ipv4/ipv6、ipv4_result/ipv6_result、last_check/last_finished/last_request、
-provider_requests/update_requests、http_status/network_error 及 records（各域名结果）。
-结果值为 disabled/ip_failed/unchanged/success/failed。success 表示服务商确认写入，未验证公网 DNS 传播。
-接口请求包含查询与更新；更新计数表示写入尝试。现有记录保留 TTL 和线路，新建使用任务 TTL。
-同名同类型多条记录、停用记录及身份不匹配均返回任务失败，避免误改。
-该组 API 不使用代理 revision；同一账号/任务的并发编辑以最后保存为准。
-
-GET /api/dns-capabilities 返回当前 Caddy 二进制的 certificate_providers。
-DNS-01 证书通过 account_id 引用公共账号；密钥仅在运行时解析，不写入配置草稿或 applied.json。
-详细调度与服务商行为见 [DDNS-INTEGRATION.md](DDNS-INTEGRATION.md)。
+provider 为 cloudflare/dnspod/tencentcloud/alidns。引用中的账号不能换厂商，同厂商可轮换密钥。
+DDNS state 提供 running/checking/result_known、ipv4/ipv6、ipv4_result/ipv6_result、last_check/last_finished/last_request、provider_requests/update_requests、http_status/network_error 和 records。
+success 表示服务商确认写入，未验证公网 DNS 传播；更新计数是尝试次数。新记录使用任务 TTL，现有记录保留 TTL/线路，Cloudflare 仅修改 content。
+该组 API 不使用代理 revision，并发编辑以最后保存为准。
+详见 [DDNS-INTEGRATION.md](DDNS-INTEGRATION.md)。

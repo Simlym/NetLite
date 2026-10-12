@@ -1,182 +1,128 @@
 # NetLite
 
-轻量跨平台网络管理工具。当前为 0.1.4 MVP，第一目标为 fnOS 原生 FPK。
+轻量跨平台网络管理工具。Go + chi + SQLite 后端，Vue 3 + TypeScript 管理面板。
+第一部署目标为 fnOS FPK，同时支持 Linux 原生运行。
 
-DDNS 已改为 Go 后端内置引擎，支持 Cloudflare、DNSPod.cn、腾讯云 DNSPod、阿里云。无需 ddns-go 二进制；详见 [DDNS-INTEGRATION.md](docs/DDNS-INTEGRATION.md)。开发阶段不迁移旧 DDNS 配置，请使用新的应用数据目录。
+## 架构
 
-## 已实现
+- NetLite 独立管理证书：签发、私钥与证书存储、自动续期、失败退避和状态。
+- ACME 协议使用 acmez v3.1.2；支持 Let's Encrypt 测试/正式 CA 的 HTTP-01、DNS-01。
+- 内置 CA 用于本地测试，根证书可下载，不修改系统信任库。
+- Caddy 只负责 HTTP/HTTPS/WebSocket 反向代理和加载证书文件，不签发或续期证书。
+- 四家 DNS 服务商（Cloudflare、DNSPod.cn、腾讯云 DNSPod、阿里云）由公共 DNS 层实现，DDNS 与 DNS-01 共用账号及 API。
+- ProxyEngine 使用业务规则、证书文件引用与已应用快照；后续 Nginx 可以复用证书服务。当前仅实现 Caddy。
 
-- Go + chi API，SQLite 持久化；Vue 3 + TypeScript 管理面板。
-- 按域名、端口的 HTTP / HTTPS 反向代理；HTTP 和 HTTPS 上游、WebSocket（由 Caddy 实现）。支持编辑、删除、启停规则。
-- 证书策略：内部 CA、Let's Encrypt ACME、四厂商 DNS-01（包含泛域名）；自动签发及续期由独立 Caddy 负责。
-- 内置 DDNS：A / AAAA、泛域名、多个域名、定时与立即检查；最多四个任务同时执行，返回各域名结果。新增使用任务 TTL，更新保留现有 TTL / 线路 / proxied 等属性。
-- 管理令牌鉴权；SQLite 修订号防止过期页面覆盖新配置；反代/证书保存与应用分开。
-- 独立 Caddy 子进程、专用管理端口、应用私有证书目录；退出时关闭自己的 Caddy，Caddy 意外退出时后端退出并报告失败。
-- fnpack 官方模板、FPK 构建脚本、独立包用户、桌面入口及生命周期脚本。
+详见 [证书管理](docs/CERTIFICATES.md)、[DDNS](docs/DDNS-INTEGRATION.md)、[API](docs/API.md)。
 
-业务配置不保存 Caddy 原生 JSON；模型在 internal/model，ProxyEngine 接口在 internal/proxy/engine.go，当前 Caddy Adapter 负责配置生成、校验、应用和状态。后续 Nginx Adapter 可以复用规则模型；Nginx 的证书签发/续期实现需要另行接入，不假设其与 Caddy 相同。
+本次为开发阶段架构变更，不迁移旧 Caddy 证书或原 applied.json，开发验证请使用新的数据目录。
 
-## Windows 本地启动
+## Linux 构建与运行
 
-前置：Go 1.25+（构建当前 Caddy 使用 Go 1.27）、Node.js 22.12+、PowerShell 7。当前工程位于 E:\git\NetLite。
+构建机需要 Git、Go 1.25+（构建固定版本 Caddy 会使用其要求的 Go 工具链）、Node.js 22.12+。
+生产机器仅需构建后的 NetLite、标准 Caddy 和静态前端，无需 Go、Node.js、ddns-go 或 Caddy DNS 插件。
 
-~~~powershell
-cd E:\git\NetLite
-# 带四个 DNS 插件的 Windows Caddy；首次构建需要联网下载 Go 依赖
+```bash
+git clone https://github.com/Simlym/NetLite.git
+cd NetLite
+npm --prefix web ci
+npm --prefix web run build
+mkdir -p bin
+CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bin/netlite ./cmd/netlite
+bash scripts/build-caddy.sh linux amd64
+umask 077
+./bin/netlite --data data-linux --web web/dist --caddy "$PWD/dist/caddy-linux-amd64"
+```
+
+浏览器打开 http://127.0.0.1:18780；另一终端读取 `data-linux/admin-token` 登录。
+ARM64 将 Caddy 脚本第二个架构参数改为 arm64，在对应机器构建后端，或使用 GOOS/GOARCH 交叉构建。
+可复用 deploy/netlite.service：程序放在 /opt/netlite/bin，前端放在 /opt/netlite/web，数据放在 /var/lib/netlite，服务以 netlite 用户运行。
+
+远程管理可使用 SSH 隧道：`ssh -N -L 18780:127.0.0.1:18780 user@server`。
+管理默认 HTTP 加令牌，保留在可信局域网或 SSH 隧道；Caddy Admin 固定使用回环地址。
+
+## Windows 开发
+
+需要 Go、Node.js 22.12+、PowerShell 7。
+
+```powershell
 .\scripts\build-caddy.ps1 -OS windows
 .\scripts\dev.ps1
-~~~
+```
 
-浏览器打开 http://127.0.0.1:18780 。另一终端读取管理令牌：
+浏览器打开 http://127.0.0.1:18780，令牌在 data/admin-token。
+`dev.ps1 -NoCaddy` 可开发 UI、DDNS 和证书管理，无法应用代理规则。
+前端热更新：在 web 目录执行 npm.cmd run dev；Vite API 转发到 18780。
 
-~~~powershell
-Get-Content E:\git\NetLite\data\admin-token
-~~~
+## 证书使用流程
 
-如只开发界面/API，可使用 .\scripts\dev.ps1 -NoCaddy（不能应用代理）。前端热更新：
+1. DNS-01 先添加公共 DNS 账号，账号需能查询域名与 TXT、创建和删除 TXT。
+2. 在 HTTPS 证书页面添加域名、验证方式和联系邮箱，默认使用测试 CA。
+3. 保存后后台自动申请，界面显示排队、签发、到期、计划续期及错误。失败按 15 分钟起步退避，最长 8 小时。
+4. 证书可用后，HTTPS 代理选择对应证书，保存并应用代理。
+5. 后台提前续期并重载已应用代理，未应用草稿不受影响。失败保留原有证书。
 
-~~~powershell
-cd E:\git\NetLite\web
-npm.cmd ci
-npm.cmd run dev
-~~~
+DNS-01 支持泛域名，支持 CNAME 验证委派；账号必须有实际目标 zone 的权限。
+HTTP-01 使用 NetLite 专用验证端口，默认 18082，公网 TCP 80 必须映射到该端口。
+验证监听仅在检查期间启动，只返回匹配 Host/token 的验证内容。当前不实现 TLS-ALPN-01。
 
-Vite 默认仅绑定 127.0.0.1，API 转发到 18780。生产前端通过 Go 提供，无需在 NAS 安装 Node.js。
+内部 CA 根证书与测试 CA 证书需客户端手动信任。下载仅包含公开证书，不导出私钥。
+标准 Caddy 无需任何服务商插件；证书已由 NetLite 签发，应用成功不再意味着等待 Caddy 签发。
 
-## 打包 fnOS FPK
+## 端口与数据
 
-构建脚本使用官方 fnpack 1.2.3。tools/fnpack.exe 为本次从官方地址下载的开发工具，tools 不入版本管理；在新机器可通过以下方式下载：
+- 管理端口：18780；私有 Caddy Admin：127.0.0.1:20190。
+- HTTP-01：18082，可通过 --acme-http-listen 修改。三个端口不能用于代理规则。
+- 代理只允许 1024..65535 的高位端口；使用 DNS-01 时无需开放验证端口。
+- 数据目录包含 netlite.db、admin-token、dns/master.key、certificates/ 和 proxy-applied.json，备份应保留整个目录。
+- certificates/ 包含 ACME 账号私钥、内部 CA 私钥和不可变版本的证书/私钥。Linux 私有目录 0700、文件 0600，Windows 限制当前账号 ACL。
+- 暂存的 TXT 验证记录会记入数据库，失败或重启后重试精确清理，不删除整个 TXT RRset。
+- proxy-applied.json 保存业务配置，启动和续期重载均从此快照渲染；草稿单独保存在 SQLite。
 
-~~~powershell
-New-Item -ItemType Directory tools -Force
-Invoke-WebRequest https://static2.fnnas.com/fnpack/fnpack-1.2.3-windows-amd64 -OutFile tools/fnpack.exe
-.\tools\fnpack.exe --help
+不修改或停止 fnOS 系统 Web 服务，不接管系统证书或信任库。
+
+## fnOS FPK
+
+使用官方 fnpack 1.2.3，构建机另需 Python 3。
+
+```powershell
 .\scripts\build-caddy.ps1 -OS linux -Arch amd64
 .\scripts\build-fpk.ps1 -Arch amd64
-~~~
+```
 
-输出：dist/netlite-0.1.4-amd64.fpk。此包使用 platform=x86，包含 Linux amd64 Go 后端、Caddy（四个 DNS 插件）、预构建前端，不依赖 NAS 的 Go / Node / Docker。
+安装包仅包含 NetLite、标准 Caddy、预构建前端与许可说明。Windows fnpack 生成的可执行权限由 normalize-fpk.py 修正并核验 app.tgz 校验和。
+启动脚本以 package 用户运行，使用应用私有数据目录；管理员读取 /var/apps/netlite/var/admin-token 登录。
+FPK 构建与 CI 不能代替 fnOS 实机安装、升级和权限验证。
 
-ARM 可使用 -Arch arm64 分别构建 Caddy 和 FPK，但尚未完成 ARM 实机验证。脚本检查 Caddy 为正确架构的 Linux ELF，避免把 Windows .exe 打入 FPK。打包使用 dist 下新建的暂存目录，不改动源码模板。
+## 验证
 
-安装步骤：
-
-1. 在 fnOS 应用中心使用手动安装，选择 FPK。
-2. 启动 NetLite，从桌面入口打开管理页面（NAS 地址:18780）。
-3. 管理员通过 SSH 读取 /var/apps/netlite/var/admin-token，输入登录面板。
-4. 先用 HTTP 高位端口反代一个内网服务；校验配置，再应用到代理。
-5. 初次测试证书使用内部 CA 或 Let's Encrypt 测试环境；确认域名与验证方式后再切正式 CA。
-
-服务以 fnOS 专用 package 用户运行。使用 TRIM_APPDEST / TRIM_PKGVAR / TRIM_PKGETC 等环境变量；不修改或停止 fnOS 的 nginx、Caddy、系统配置、系统证书目录或其他 Web 服务。反代只接受 1024..65535 高位端口，默认例子 18080 / 18443；占用端口会使校验/应用失败，需换空闲端口。
-
-私有 Caddy Admin 是 127.0.0.1:20190，启动时若已被其他服务占用则拒绝启动。管理界面使用 18780；这两个端口不能作为代理规则端口。系统端口、现有其他应用端口仍需在实机确认。
-
-## 旧 Cloudflare 环境变量配置（兼容）
-
-本节仅描述旧配置；新功能请在公共 DNS 账号页面添加加密保存的凭据。旧令牌以环境变量引用，不存入 SQLite，不通过 API 传输、不显示在 UI。Cloudflare 令牌建议限制到所管理的 Zone；DDNS 需要 DNS 编辑权限，DNS-01 插件需要 Zone 读取和 DNS 编辑权限。插件的具体要求见官方仓库。
-
-Windows：在启动 NetLite 的终端设置变量；Caddy 子进程继承变量。
-
-~~~powershell
-$env:NETLITE_CF_TOKEN='你的 Cloudflare API Token'
-.\scripts\dev.ps1
-~~~
-
-fnOS：管理员编辑 /var/apps/netlite/etc/credentials.env（仅用于管理员控制的环境配置文件，不接受网页上传）：
-
-~~~sh
-NETLITE_CF_TOKEN='你的 Cloudflare API Token'
-~~~
-
-保存后重启应用。此文件首次安装自动创建，权限 600；数据目录默认 umask 077。不要把此文件提交到版本库。卸载脚本不会主动删除 var / etc，卸载前仍应备份：fnOS 卸载选项可能决定最终数据保留情况。
-
-DDNS：在“DNS 账号”保存凭据，在“动态 DNS”创建任务并启用。账号、任务和检查历史保存在 SQLite；主密钥位于应用数据目录 dns/master.key。
-DNS-01：在证书页面选择 DNS-01，填写 *.example.com 和需要的根域名 example.com。根域名不被泛域名覆盖。应用前检查 dns.providers.cloudflare 模块和变量是否存在；缺少插件时返回可读错误。新配置可引用公共 DNS 账号，支持 Cloudflare、DNSPod、腾讯云、阿里云；不能填写任意 Caddy JSON。
-
-## HTTPS 和端口
-
-内部 CA 只用于本地测试，不会自动修改系统信任库；客户端需手动信任或在测试请求中跳过验证。
-
-ACME 默认测试 CA，测试证书不会被普通浏览器信任。正式 CA 通过证书策略中取消“测试 CA”启用。ACME 的 HTTP-01 / TLS-ALPN-01 验证需要公网 80 / 443 可达，当前 Caddy 全局验证端口分别为 18080 / 18443，必须映射到这些端口并保证正确的 DNS。普通高位 HTTPS 访问端口不能代替公网验证端口。若 NAS 系统已有 80/443 服务，优先 DNS-01；不接管系统端口。
-
-使用 DNS-01 时，签发无需开放公网验证端口，但实际访问服务仍需要网络/路由端口映射。HTTPS 规则必须选择覆盖其域名的证书策略。同一端口不能同时配置 HTTP 和 HTTPS。上游地址仅支持 http(s)://host[:port]，不含路径、用户名或密码；HTTPS 上游启用证书验证，不提供跳过验证选项。
-
-“应用成功”表示 Caddy 接受配置，不表示公网证书已签发。查看 caddy.log 的 obtain / renewal / error；当前 UI 没有证书到期清单或完整日志查看器。未应用的反代/证书草稿不会在重启时自动生效；重启恢复 applied.json。已启用 DDNS 依据已保存配置运行，不需要点击代理应用。
-
-## 测试
-
-~~~powershell
-cd E:\git\NetLite
-$env:NETLITE_TEST_CADDY=(Resolve-Path .\tools\caddy.exe).Path
+```bash
 go test ./...
+go test -race ./internal/...
 go vet ./...
-.\scripts\smoke.ps1
 cd web
-npm.cmd run build
-npm.cmd audit --audit-level=high
-~~~
+npm ci
+npm test
+npm run build
+```
 
-单元测试：规则边界、泛域名覆盖、SQLite 持久化/修订冲突、Caddy JSON 及真实配置校验、占用 Admin 端口拒绝接管、四厂商模拟 API、签名、任务取消及并发上限。真实 Caddy DNS 插件测试只校验配置，使用假令牌，不提交真实 DNS 变更。
-
-smoke.ps1 在 19780 / 21190 / 19881 / 19081 / 19444 启动独立测试服务，验证鉴权、过期版本拒绝、HTTP/HTTPS 反代、内部 CA、已应用配置重启恢复及草稿持久化。临时数据保留在 data/smoke-* 便于查看日志。Windows 测试通过独立 Caddy Admin 停止自己的 Caddy，避免强杀后遗留子进程。
-
-详见 docs/VALIDATION.md。FPK 构建成功不能代替 fnOS 实机安装测试；当前没有连接 fnOS 设备，也没有真实 Cloudflare 凭据，因此公网 DDNS、正式/测试 ACME DNS-01 签发、fnOS 安装/启动/升级/卸载仍需要现场验证。
+GitHub CI 执行模拟 ACME HTTP-01/DNS-01 完整流程、四厂商 TXT 与 DDNS 测试、状态持久化、续期与失败保留，使用标准 Caddy 验证配置及 Linux/Windows HTTP/HTTPS/重启 smoke。
+Windows 集成脚本为 scripts/smoke.ps1；Linux 为 scripts/smoke-linux.py，需要 NETLITE_TEST_CADDY 指向真实 Caddy 和预先构建 bin/netlite。
+未提供真实 DNS 凭据或 fnOS 设备时，公网签发、实际 DNS 传播和 fnOS 生命周期需现场验证。
 
 ## 目录
 
-~~~text
-cmd/netlite/         Go 启动、API、鉴权、进程生命周期
-internal/model/      与引擎无关的业务模型及校验
-internal/store/      SQLite 代理配置与修订号
-internal/proxy/      ProxyEngine + Caddy Adapter
-internal/dnstask/    内置四厂商 DDNS、调度、账号与历史
-internal/dnsaccount/ 公共 DNS 凭据库
-web/                Vue 3 + TypeScript
-packaging/fnos/     官方原生模板衍生的 FPK 元数据和脚本
-deploy/             Linux 服务示例；后续部署边界
-scripts/            开发、构建 Caddy、打包、集成验证
-docs/               官方规范核验、API、验证记录
-dist/               构建二进制与 FPK（忽略）
-data/               本地数据库、令牌、证书、日志（忽略）
-~~~
+```text
+cmd/netlite/          启动、API、鉴权与服务生命周期
+internal/model/       引擎无关业务模型
+internal/certificates/ 证书生命周期、ACME 与验证
+internal/dnsprovider/  四厂商公共 DNS API
+internal/dnsaccount/   公共加密凭据库
+internal/dnstask/      DDNS 调度与历史
+internal/proxy/        ProxyEngine 与 Caddy 代理适配
+internal/store/        SQLite 与代理草稿修订
+web/                   Vue 管理界面
+scripts/               标准 Caddy、打包与集成验证
+packaging/fnos/        fnOS 模板与应用脚本
+```
 
-## 后续
-
-Linux：后端支持 CGO_ENABLED=0 的 Linux amd64/arm64 构建；deploy/netlite.service 为非特权 systemd 示例，路径需按安装位置调整。
-
-Docker：下一阶段加入镜像、持久化卷和进程健康检查，使用同一 Go 后端 + 独立 Caddy 子进程；本版不交付已验证 Docker 镜像。
-
-DSM SPK：下一阶段复用静态 Linux 构建，单独实现 DSM 生命周期、权限和安装包规范；本版不声称可安装 SPK。
-
-待完善：其他 DNS 服务商、证书到期状态、审计/日志轮转、自动化 fnOS 实机测试、用户登录与管理界面 HTTPS、Nginx Adapter。当前管理界面使用令牌和 HTTP，应保留在可信局域网或 SSH 隧道，不把 18780 / 20190 直接映射到公网。
-
-## 官方依据
-
-- [fnpack 官方文档与下载](https://developer.fnnas.com/docs/cli/fnpack/)
-- [fnOS 应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)
-- [Manifest](https://developer.fnnas.com/docs/core-concepts/manifest/)、[包权限](https://developer.fnnas.com/docs/core-concepts/privilege/)、[应用入口](https://developer.fnnas.com/docs/core-concepts/app-entry/)
-- [Caddy 自动 HTTPS / DNS-01](https://caddyserver.com/docs/automatic-https)
-- [Caddy Cloudflare 插件](https://github.com/caddy-dns/cloudflare)
-- [Cloudflare DNS Record API](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/edit/)
-
-Windows 打包补充：实测 fnpack 1.2.3 在 Windows 生成的归档中脚本及二进制默认 0666。scripts/normalize-fpk.py 使用 Python 3 将 cmd/* 与 bin/netlite、bin/caddy 改为 0755，并按实测官方契约重新计算 app.tgz 的 MD5 更新 manifest.checksum；输入 checksum 不符合契约时直接拒绝处理。构建脚本已自动执行并回读核验。该步骤只处理生成的包，不改动 NAS 文件。构建机另需 Python 3。
-
-UI 更新：添加与编辑通过弹窗完成，主页面展示完整列表；删除需确认；点击「查看 Caddy 配置」可切换保存的配置草稿和最近成功应用的配置，查看内容会隐藏凭据值。
-
-## 内置 DDNS 任务管理
-
-先添加公共 DNS 账号，再创建 A/AAAA 任务。支持 Cloudflare、DNSPod.cn、腾讯云 DNSPod和阿里云；IP 来源为 HTTP(S) 纯文本查询接口。
-“立即检查”将检查排队，不重启进程；详情显示每个域名结果与最近 100 条检查历史。
-现有记录仅在唯一匹配且处于启用状态时更新，保留 TTL 和线路等属性；Cloudflare 仅 PATCH content。
-主密钥位于 `dns/master.key`，备份应保留数据库及整个应用数据目录。运行时不生成明文凭据配置文件。
-
-详细行为、API 和验证方法见 [DDNS-INTEGRATION.md](docs/DDNS-INTEGRATION.md)。
-
-## 公共 DNS 账号与证书（0.1.4）
-
-“DNS 账号”页面统一管理凭据，DDNS 任务和 DNS-01 证书通过 account_id 引用同一个账号。申请证书不需要启用 DDNS。证书选择器只显示当前 Caddy 二进制已安装插件支持的账号；随包包含 Cloudflare、DNSPod.cn（ID/Token）、腾讯云 DNSPod、阿里云插件。
-
-新证书选择 DNS-01 后直接选择 DNS 账号。原 Cloudflare token_env 配置保持兼容，可编辑切换为账号引用。账号和密钥不会复制到证书业务配置；代理预览和 applied.json 只保存引用，运行时通过标准输入或回环 Admin 注入。凭据变更后 DDNS 自动重载，证书需“应用到代理”。被任务、草稿证书或已应用配置引用的账号禁止删除；移除证书后需应用配置才能解除已应用引用。
-
-本地开发请先构建新的四插件 Caddy；dev.ps1 优先使用 dist/caddy-windows-amd64.exe。已运行的旧进程不自动替换。详细说明见 docs/DNS-ACCOUNTS.md。fnOS 实机、真实 DNS-01 签发和续期尚未验证。
-
+后续：Nginx Adapter、Docker 镜像与 Compose、证书导入/吊销、日志轮转及 fnOS 实机验证。

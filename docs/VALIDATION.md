@@ -1,3 +1,5 @@
+> 历史验证记录：当前证书由 NetLite 管理，已移除 Caddy DNS 插件与证书自动化。当前架构见 CERTIFICATES.md，旧版验证结果不代表本次改造。
+
 > 本文包含此前版本的验证记录。当前 DDNS 已内置，原 ddns-go 构建、二进制及测试结果不适用于当前引擎；当前验证要求见 DDNS-INTEGRATION.md。
 
 # 本地验证记录

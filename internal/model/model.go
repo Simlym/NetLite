@@ -3,7 +3,7 @@ package model
 import (
 	"fmt"
 	"net"
- "net/mail"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"strings"
@@ -25,13 +25,13 @@ type Route struct {
 	Enabled       bool   `json:"enabled"`
 }
 type Certificate struct {
-	ID        string   `json:"id"`
-	Domains   []string `json:"domains"`
-	Mode      string   `json:"mode"`
-	Email     string   `json:"email"`
-	AccountID string   `json:"account_id,omitempty"`
-	Staging   bool     `json:"staging"`
- RenewBeforeDays int `json:"renew_before_days,omitempty"`
+	ID              string   `json:"id"`
+	Domains         []string `json:"domains"`
+	Mode            string   `json:"mode"`
+	Email           string   `json:"email"`
+	AccountID       string   `json:"account_id,omitempty"`
+	Staging         bool     `json:"staging"`
+	RenewBeforeDays int      `json:"renew_before_days,omitempty"`
 }
 
 var ident = regexp.MustCompile("^[a-zA-Z0-9_-]{1,64}$")
@@ -89,12 +89,25 @@ func (c Config) Validate(reserved ...int) error {
 				return fmt.Errorf("wildcard requires DNS-01")
 			}
 		}
-  if x.Mode=="dns" {if !ident.MatchString(x.AccountID){return fmt.Errorf("DNS-01 requires a DNS account")}} else if x.AccountID!=""{return fmt.Errorf("DNS account is only used for DNS-01")}
-  if x.Mode!="internal" {address,err:=mail.ParseAddress(x.Email);if err!=nil||address.Address!=x.Email{return fmt.Errorf("ACME requires a valid contact email")}}
+		if x.Mode == "dns" {
+			if !ident.MatchString(x.AccountID) {
+				return fmt.Errorf("DNS-01 requires a DNS account")
+			}
+		} else if x.AccountID != "" {
+			return fmt.Errorf("DNS account is only used for DNS-01")
+		}
+		if x.Mode != "internal" {
+			address, err := mail.ParseAddress(x.Email)
+			if err != nil || address.Address != x.Email {
+				return fmt.Errorf("ACME requires a valid contact email")
+			}
+		}
 		if strings.ContainsAny(x.Email, "\r\n") {
 			return fmt.Errorf("invalid email")
 		}
-  if x.RenewBeforeDays<0||x.RenewBeforeDays>60{return fmt.Errorf("renew_before_days must be 0..60")}
+		if x.RenewBeforeDays < 0 || x.RenewBeforeDays > 60 {
+			return fmt.Errorf("renew_before_days must be 0..60")
+		}
 		certs[x.ID] = x
 	}
 	ports := map[int]string{}
@@ -145,4 +158,4 @@ func (c Config) Validate(reserved ...int) error {
 }
 
 // CertificateFiles is the engine-independent, immutable TLS material contract.
-type CertificateFiles struct {CertificateFile,PrivateKeyFile string}
+type CertificateFiles struct{ CertificateFile, PrivateKeyFile string }

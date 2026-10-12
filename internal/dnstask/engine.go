@@ -6,8 +6,8 @@ import (
 	"io"
 	"net"
 	"net/http"
- "netlite/internal/dnsprovider"
- "netlite/internal/model"
+	"netlite/internal/dnsprovider"
+	"netlite/internal/model"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +67,7 @@ type Engine struct {
 
 func New() *Engine {
 	return &Engine{jobs: map[string]*job{}, history: map[string]State{}, slots: make(chan struct{}, 4),
-		client:    &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
+		client:   &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
 		provider: dnsprovider.New}
 }
 
@@ -208,7 +208,7 @@ func (e *Engine) getIP(ctx context.Context, source Source, v4 bool) (string, err
 
 func (e *Engine) check(ctx context.Context, t Task) State {
 	s := State{Running: true, Checking: true, LastCheck: time.Now().UTC(), IPv4Result: "disabled", IPv6Result: "disabled"}
-	p := e.provider(model.DNSCredential{Provider:t.Provider, ID:t.CredentialID, Secret:t.Secret})
+	p := e.provider(model.DNSCredential{Provider: t.Provider, ID: t.CredentialID, Secret: t.Secret})
 	for i, source := range []Source{t.IPv4, t.IPv6} {
 		if len(source.Domains) == 0 {
 			continue
@@ -249,9 +249,9 @@ func (e *Engine) check(ctx context.Context, t Task) State {
 			s.IPv6Result = result
 		}
 	}
- stats:=p.Stats()
- s.ProviderRequests,s.UpdateRequests,s.HTTPStatus,s.NetworkError=stats.ProviderRequests,stats.UpdateRequests,stats.HTTPStatus,stats.NetworkError
- s.LastRequest=stats.LastRequest
+	stats := p.Stats()
+	s.ProviderRequests, s.UpdateRequests, s.HTTPStatus, s.NetworkError = stats.ProviderRequests, stats.UpdateRequests, stats.HTTPStatus, stats.NetworkError
+	s.LastRequest = stats.LastRequest
 	s.Checking, s.ResultKnown = false, true
 	s.LastFinished = time.Now().UTC()
 	s.Message = "已检查解析记录，无需更新"

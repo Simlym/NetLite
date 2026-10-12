@@ -15,9 +15,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"netlite/internal/certificates"
+	"netlite/internal/dnsprovider"
 	"netlite/internal/dnstask"
- "netlite/internal/dnsprovider"
- "netlite/internal/certificates"
 	"netlite/internal/model"
 	"netlite/internal/proxy"
 	"netlite/internal/store"
@@ -51,12 +51,21 @@ func run() error {
 	web := flag.String("web", "web/dist", "built frontend directory")
 	binary := flag.String("caddy", "caddy", "independent Caddy executable")
 	admin := flag.String("caddy-admin", "127.0.0.1:20190", "private Caddy admin")
- httpChallenge := flag.String("acme-http-listen","0.0.0.0:18082","HTTP-01 validation listener (public TCP 80 must reach it)")
- proxyKind := flag.String("proxy-engine","caddy","proxy engine; currently caddy")
+	httpChallenge := flag.String("acme-http-listen", "0.0.0.0:18082", "HTTP-01 validation listener (public TCP 80 must reach it)")
+	proxyKind := flag.String("proxy-engine", "caddy", "proxy engine; currently caddy")
 	noCaddy := flag.Bool("no-caddy", false, "development only: CRUD without engine")
- flag.Parse()
- if *proxyKind!="caddy"{return fmt.Errorf("unsupported proxy engine; currently caddy is available")}
- _,challengePortText,err:=net.SplitHostPort(*httpChallenge);if err!=nil{return err};challengePort,err:=strconv.Atoi(challengePortText);if err!=nil||challengePort<1024||challengePort>65535{return fmt.Errorf("HTTP-01 must use an unprivileged port")}
+	flag.Parse()
+	if *proxyKind != "caddy" {
+		return fmt.Errorf("unsupported proxy engine; currently caddy is available")
+	}
+	_, challengePortText, err := net.SplitHostPort(*httpChallenge)
+	if err != nil {
+		return err
+	}
+	challengePort, err := strconv.Atoi(challengePortText)
+	if err != nil || challengePort < 1024 || challengePort > 65535 {
+		return fmt.Errorf("HTTP-01 must use an unprivileged port")
+	}
 
 	host, port, e := net.SplitHostPort(*admin)
 	if e != nil || host != "127.0.0.1" {
@@ -74,7 +83,7 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	if managePort == adminPort || challengePort==managePort || challengePort==adminPort {
+	if managePort == adminPort || challengePort == managePort || challengePort == adminPort {
 		return fmt.Errorf("management and admin ports must differ")
 	}
 	abs, e := filepath.Abs(*data)
@@ -116,13 +125,37 @@ func run() error {
 	if e != nil {
 		return e
 	}
- certService,e:=certificates.Open(ctx,s,filepath.Join(*data,"certificates"),*httpChallenge);if e!=nil{return e}
- certService.ResolveAccount=ddnsService.ResolveAccount
- engine.ResolveCertificate=certService.Files
- certService.Applied=adapter.Applied
- certService.Reload=func(check context.Context)error{if *noCaddy{return nil};configMu.Lock();defer configMu.Unlock();return adapter.ReloadCertificates(check)}
- ddnsService.AppliedAccountReference=func(id string)bool{if certService.AccountReferenced(id){return true};applied,err:=adapter.Applied();if err!=nil{return true};for _,c:=range applied.Certificates{if c.AccountID==id{return true}};return false}
-	errCh := make(chan error, 1)
+	certService, e := certificates.Open(ctx, s, filepath.Join(*data, "certificates"), *httpChallenge)
+	if e != nil {
+		return e
+	}
+	certService.ResolveAccount = ddnsService.ResolveAccount
+	engine.ResolveCertificate = certService.Files
+	certService.Applied = adapter.Applied
+	certService.Reload = func(check context.Context) error {
+		if *noCaddy {
+			return nil
+		}
+		configMu.Lock()
+		defer configMu.Unlock()
+		return adapter.ReloadCertificates(check)
+	}
+	ddnsService.AppliedAccountReference = func(id string) bool {
+		if certService.AccountReferenced(id) {
+			return true
+		}
+		applied, err := adapter.Applied()
+		if err != nil {
+			return true
+		}
+		for _, c := range applied.Certificates {
+			if c.AccountID == id {
+				return true
+			}
+		}
+		return false
+	}
+	errCh := make(chan error, 2)
 	engineDone := make(chan struct{})
 	if !*noCaddy {
 		go func() {
@@ -162,15 +195,17 @@ func run() error {
 			defer configMu.Unlock()
 			ddnsRouter.ServeHTTP(w, req)
 		}))
-  r.Mount("/certificates",certService.Router())
-  r.Get("/dns-capabilities",func(w http.ResponseWriter,r *http.Request){respond(w,200,map[string]any{"certificate_providers":dnsprovider.Providers})})
+		r.Mount("/certificates", certService.Router())
+		r.Get("/dns-capabilities", func(w http.ResponseWriter, r *http.Request) {
+			respond(w, 200, map[string]any{"certificate_providers": dnsprovider.Providers})
+		})
 		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 			c, e := s.Load()
 			if e != nil {
 				fail(w, 500, e)
 				return
 			}
-    respond(w, 200, c)
+			respond(w, 200, c)
 		})
 		r.Put("/config", func(w http.ResponseWriter, r *http.Request) {
 			configMu.Lock()
@@ -203,8 +238,12 @@ func run() error {
 				fail(w, status, e)
 				return
 			}
-   for _,policy:=range c.Certificates{if err:=certService.Request(policy,false);err!=nil{log.Printf("certificate %s scheduling deferred",policy.ID)}}
-   respond(w, 200, c)
+			for _, policy := range c.Certificates {
+				if err := certService.Request(policy, false); err != nil {
+					log.Printf("certificate %s scheduling deferred", policy.ID)
+				}
+			}
+			respond(w, 200, c)
 		})
 		r.Get("/proxy/config", func(w http.ResponseWriter, r *http.Request) {
 			configMu.Lock()
@@ -225,7 +264,9 @@ func run() error {
 			configMu.Lock()
 			defer configMu.Unlock()
 			c, e := s.Load()
-			if e == nil { e=certService.RequireReady(c) }
+			if e == nil {
+				e = certService.RequireReady(c)
+			}
 			if e == nil {
 				check, stop := context.WithTimeout(r.Context(), 30*time.Second)
 				defer stop()
@@ -245,7 +286,9 @@ func run() error {
 			configMu.Lock()
 			defer configMu.Unlock()
 			c, e := s.Load()
-			if e == nil { e=certService.RequireReady(c) }
+			if e == nil {
+				e = certService.RequireReady(c)
+			}
 			if e == nil {
 				check, stop := context.WithTimeout(r.Context(), 30*time.Second)
 				defer stop()
@@ -288,8 +331,8 @@ func run() error {
 			cancel()
 		}
 	}()
- certDone:=make(chan struct{})
- go func(){defer close(certDone);certService.Run(ctx)}()
+	certDone := make(chan struct{})
+	go func() { defer close(certDone); certService.Run(ctx) }()
 	ddnsDone := make(chan struct{})
 	go func() { defer close(ddnsDone); ddnsService.Run(ctx) }()
 	log.Printf("NetLite listening on %s; management token is in %s", *listen, tokenPath)
@@ -299,7 +342,7 @@ func run() error {
 	srv.Shutdown(shutdown)
 	<-engineDone
 	<-ddnsDone
- <-certDone
+	<-certDone
 	select {
 	case e := <-errCh:
 		return e
