@@ -208,7 +208,9 @@ func (m *Manager) cleanTXT(ctx context.Context, id string, client *dnsprovider.C
 	return err
 }
 func (m *Manager) recoverTXT(ctx context.Context) error {
-	if !m.operationMu.TryLock() { return nil }
+	if !m.operationMu.TryLock() {
+		return nil
+	}
 	defer m.operationMu.Unlock()
 	return m.recoverTXTLocked(ctx, "")
 }
@@ -233,7 +235,9 @@ func (m *Manager) recoverTXTLocked(ctx context.Context, accountID string) error 
 		return err
 	}
 	for _, e := range entries {
-		if accountID != "" && e.account != accountID { continue }
+		if accountID != "" && e.account != accountID {
+			continue
+		}
 		if m.ResolveAccount == nil {
 			return fmt.Errorf("DNS account resolver unavailable")
 		}

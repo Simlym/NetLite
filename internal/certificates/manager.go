@@ -39,7 +39,7 @@ type Manager struct {
 	dir            string
 	ctx            context.Context
 	mu, rootMu     sync.Mutex
-	operationMu sync.Mutex
+	operationMu    sync.Mutex
 	queued         map[string]bool
 	queue          chan model.Certificate
 	now            func() time.Time

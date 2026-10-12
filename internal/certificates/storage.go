@@ -49,7 +49,9 @@ func atomicWrite(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err = os.Rename(tmp, path); err != nil { return err }
+	if err = os.Rename(tmp, path); err != nil {
+		return err
+	}
 	return syncDirectory(filepath.Dir(path))
 }
 func privateDir(path string) error {
@@ -135,7 +137,9 @@ func (m *Manager) publish(c model.Certificate, b Bundle) (string, *x509.Certific
 		return "", nil, err
 	}
 	for _, dir := range []string{parent, filepath.Dir(parent), m.dir} {
-		if err = syncDirectory(dir); err != nil { return "", nil, err }
+		if err = syncDirectory(dir); err != nil {
+			return "", nil, err
+		}
 	}
 	return generation, leaf, nil
 }

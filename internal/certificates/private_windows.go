@@ -18,5 +18,6 @@ func protect(path string) error {
 	}
 	return nil
 }
+
 // Windows atomic rename and flushed files provide the available filesystem guarantee.
 func syncDirectory(string) error { return nil }
