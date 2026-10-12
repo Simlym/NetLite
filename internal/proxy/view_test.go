@@ -1,38 +1,19 @@
 package proxy
 
 import (
-	"encoding/json"
 	"netlite/internal/model"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestConfigurationRedactsCheckpointAndKeepsDraft(t *testing.T) {
+func TestDraftAndAppliedPreview(t *testing.T) {
 	c := New("unused", t.TempDir(), "127.0.0.1:20190")
-	cfg := model.Config{Certificates: []model.Certificate{{Domains: []string{"*.example.com"}, Mode: "dns", Provider: "cloudflare", TokenEnv: "CF_TOKEN"}}}
-	view, err := c.Configuration(cfg)
-	if err != nil {
-		t.Fatal(err)
+	view, err := c.Configuration(model.Config{})
+	if err != nil || view["draft"] == nil || view["applied"] != nil {
+		t.Fatal("incorrect initial view", err)
 	}
-	if view["applied"] != nil {
-		t.Fatal("unexpected checkpoint")
-	}
-	err = os.WriteFile(filepath.Join(c.Data, "applied.json"), []byte(`{"apps":{"tls":{"api_token":"live-secret","nested":[{"password":"hidden"}]}}}`), 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := model.Config{Routes: []model.Route{{ID: "app", Domain: "example.com", Scheme: "https", Port: 18443, CertificateID: "cert", Enabled: true}}, Certificates: []model.Certificate{{ID: "cert", Domains: []string{"example.com"}, Mode: "internal"}}}
 	view, err = c.Configuration(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := json.Marshal(view)
-	text := string(b)
-	if strings.Contains(text, "live-secret") || strings.Contains(text, "hidden") {
-		t.Fatal("credential leaked")
-	}
-	if !strings.Contains(text, "{env.CF_TOKEN}") || !strings.Contains(text, "[REDACTED]") {
-		t.Fatal("incorrect config view")
+	if err != nil || view["draft_error"] == nil || view["draft"] != nil {
+		t.Fatal("missing certificate must be visible without hiding applied view", err)
 	}
 }

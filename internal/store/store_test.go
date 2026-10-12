@@ -63,4 +63,3 @@ func TestLegacyRouteWithoutName(t *testing.T) {
 		t.Fatal("name was not saved")
 	}
 }
-

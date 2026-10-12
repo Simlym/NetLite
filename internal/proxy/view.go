@@ -3,32 +3,39 @@ package proxy
 import (
 	"encoding/json"
 	"netlite/internal/model"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
 // Configuration exposes only the generated draft and last persisted checkpoint.
 // It never expands credential environment references or queries another process.
 func (c *Caddy) Configuration(cfg model.Config) (map[string]any, error) {
+	out := map[string]any{"draft": nil, "applied": nil}
 	draft, err := c.Render(cfg)
+	if err != nil {
+		out["draft_error"] = err.Error()
+	} else {
+		var d any
+		if err = json.Unmarshal(draft, &d); err != nil {
+			return nil, err
+		}
+		out["draft"] = d
+	}
+	applied, err := c.Applied()
 	if err != nil {
 		return nil, err
 	}
-	var d, a any
-	if err = json.Unmarshal(draft, &d); err != nil {
-		return nil, err
-	}
-	applied, err := os.ReadFile(filepath.Join(c.Data, "applied.json"))
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	if len(applied) > 0 {
-		if err = json.Unmarshal(applied, &a); err != nil {
+	if len(applied.Routes) > 0 {
+		b, err := c.Render(applied)
+		if err != nil {
 			return nil, err
 		}
+		var a any
+		if err = json.Unmarshal(b, &a); err != nil {
+			return nil, err
+		}
+		out["applied"] = a
 	}
-	return map[string]any{"draft": redact(d), "applied": redact(a)}, nil
+	return out, nil
 }
 
 func redact(v any) any {

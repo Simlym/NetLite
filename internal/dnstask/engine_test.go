@@ -25,7 +25,6 @@ func TestIPFailureNeverCallsProvider(t *testing.T) {
 	ip := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("token=secret")) }))
 	defer ip.Close()
 	e := New()
-	e.endpoints.Cloudflare = "http://127.0.0.1:1"
 	task := sampleTask()
 	task.IPv4.URL = ip.URL
 	s := e.check(context.Background(), task)

@@ -9,8 +9,8 @@ NetLite 在 Go 后端内实现 DDNS，不再构建、打包或启动 ddns-go。
 
 - internal/dnstask/task.go：任务输入与校验。
 - internal/dnstask/engine.go：协程调度、IP 获取、立即检查与结果聚合。
-- internal/dnstask/{cloudflare,dnspod,tencent,alidns}.go：四家服务商。
-- internal/dnstask/signing.go：腾讯云 TC3 与阿里云 RPC 签名。
+- internal/dnsprovider/{cloudflare,dnspod,tencent,alidns}.go：四家服务商。
+- internal/dnsprovider/signing.go：腾讯云 TC3 与阿里云 RPC 签名。
 - internal/dnstask/service.go：账号、任务与 API。
 - internal/dnsaccount：AES-GCM 凭据库，主密钥位于 data/dns/master.key。
 - internal/dnstask/history.go：每个任务最近 100 条完成检查记录。

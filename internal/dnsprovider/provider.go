@@ -1,4 +1,4 @@
-package dnstask
+package dnsprovider
 
 import (
 	"context"
@@ -19,10 +19,10 @@ func defaultEndpoints() endpoints {
 }
 
 type providerAPI struct {
-	task      Task
+	task      Credentials
 	client    *http.Client
 	endpoints endpoints
-	state     *State
+	state     *Stats
 	zones     map[string]string
 }
 

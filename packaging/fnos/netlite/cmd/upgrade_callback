@@ -2,8 +2,4 @@
 set -eu
 umask 077
 mkdir -p "$TRIM_PKGETC" "$TRIM_PKGVAR"
-if [ ! -f "$TRIM_PKGETC/credentials.env" ]; then
- printf '# Cloudflare token; only edit as administrator, then restart NetLite.\n# NETLITE_CF_TOKEN=your-token\n' > "$TRIM_PKGETC/credentials.env"
- chmod 600 "$TRIM_PKGETC/credentials.env"
-fi
 exit 0

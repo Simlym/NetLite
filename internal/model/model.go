@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"net"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"strings"
@@ -24,18 +25,16 @@ type Route struct {
 	Enabled       bool   `json:"enabled"`
 }
 type Certificate struct {
-	ID        string   `json:"id"`
-	Domains   []string `json:"domains"`
-	Mode      string   `json:"mode"`
-	Email     string   `json:"email"`
-	Provider  string   `json:"provider"`
-	TokenEnv  string   `json:"token_env"`
-	AccountID string   `json:"account_id,omitempty"`
-	Staging   bool     `json:"staging"`
+	ID              string   `json:"id"`
+	Domains         []string `json:"domains"`
+	Mode            string   `json:"mode"`
+	Email           string   `json:"email"`
+	AccountID       string   `json:"account_id,omitempty"`
+	Staging         bool     `json:"staging"`
+	RenewBeforeDays int      `json:"renew_before_days,omitempty"`
 }
 
 var ident = regexp.MustCompile("^[a-zA-Z0-9_-]{1,64}$")
-var env = regexp.MustCompile("^[A-Z][A-Z0-9_]{0,100}$")
 var label = regexp.MustCompile("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 func Domain(s string) bool {
@@ -91,18 +90,23 @@ func (c Config) Validate(reserved ...int) error {
 			}
 		}
 		if x.Mode == "dns" {
-			if x.AccountID != "" {
-				if !ident.MatchString(x.AccountID) || x.Provider != "" || x.TokenEnv != "" {
-					return fmt.Errorf("DNS account reference cannot be mixed with legacy provider/token_env")
-				}
-			} else if x.Provider != "cloudflare" || !env.MatchString(x.TokenEnv) {
-				return fmt.Errorf("DNS-01 requires a DNS account or legacy cloudflare token_env")
+			if !ident.MatchString(x.AccountID) {
+				return fmt.Errorf("DNS-01 requires a DNS account")
 			}
 		} else if x.AccountID != "" {
 			return fmt.Errorf("DNS account is only used for DNS-01")
 		}
+		if x.Mode != "internal" {
+			address, err := mail.ParseAddress(x.Email)
+			if err != nil || address.Address != x.Email {
+				return fmt.Errorf("ACME requires a valid contact email")
+			}
+		}
 		if strings.ContainsAny(x.Email, "\r\n") {
 			return fmt.Errorf("invalid email")
+		}
+		if x.RenewBeforeDays < 0 || x.RenewBeforeDays > 60 {
+			return fmt.Errorf("renew_before_days must be 0..60")
 		}
 		certs[x.ID] = x
 	}
@@ -152,3 +156,6 @@ func (c Config) Validate(reserved ...int) error {
 	}
 	return nil
 }
+
+// CertificateFiles is the engine-independent, immutable TLS material contract.
+type CertificateFiles struct{ CertificateFile, PrivateKeyFile string }

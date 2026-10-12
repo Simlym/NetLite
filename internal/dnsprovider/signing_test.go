@@ -1,4 +1,4 @@
-package dnstask
+package dnsprovider
 
 import (
 	"net/http"

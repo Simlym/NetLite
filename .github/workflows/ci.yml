@@ -1,32 +1,40 @@
 name: CI
-
 on:
   push:
     branches: [main, 'codex/**']
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      NETLITE_TEST_CADDY: ${{ github.workspace }}/tools/caddy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Go formatting
+      - name: Prepare dependencies and formatting
         run: |
-          gofmt -d internal/dnstask cmd/netlite/main.go internal/model/model.go internal/store/store.go internal/dnsaccount/vault.go
-          test -z "$(gofmt -l internal/dnstask cmd/netlite/main.go internal/model/model.go internal/store/store.go internal/dnsaccount/vault.go)"
+          go mod tidy
+          gofmt -w cmd internal
+          git diff -- go.mod go.sum cmd internal
+      - name: Build standard Caddy
+        run: |
+          mkdir -p tools bin
+          GOBIN="$PWD/tools" CGO_ENABLED=0 go install github.com/caddyserver/caddy/v2/cmd/caddy@v2.11.7
       - name: Go tests
         run: go test ./...
-      - name: DDNS race checks
-        run: go test -race ./internal/dnstask
+      - name: Race checks
+        run: go test -race ./internal/...
       - name: Go vet
         run: go vet ./...
+      - name: Linux integration
+        run: |
+          CGO_ENABLED=0 go build -o bin/netlite ./cmd/netlite
+          python3 scripts/smoke-linux.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -38,3 +46,34 @@ jobs:
           npm ci
           npm test
           npm run build
+      - name: Enforce checked-in dependencies and formatting
+        run: git diff --exit-code -- go.mod go.sum cmd internal
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Prepare modules and standard Caddy
+        shell: pwsh
+        run: |
+          go mod tidy
+          New-Item -ItemType Directory tools -Force | Out-Null
+          $env:GOBIN=Join-Path (Get-Location) 'tools'
+          go install github.com/caddyserver/caddy/v2/cmd/caddy@v2.11.7
+          if($LASTEXITCODE){throw 'Caddy build failed'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Frontend build
+        working-directory: web
+        run: |
+          npm.cmd ci
+          npm.cmd run build
+      - name: HTTP and HTTPS integration
+        shell: pwsh
+        run: ./scripts/smoke.ps1

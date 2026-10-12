@@ -1,4 +1,4 @@
-package dnstask
+package dnsprovider
 
 import (
 	"context"
@@ -187,7 +187,7 @@ func TestProvidersRecordLifecycle(t *testing.T) {
 				defer server.Close()
 				task := sampleTask()
 				task.Provider, task.CredentialID = provider, "id"
-				state := State{}
+				state := Stats{}
 				p := providerAPI{task: task, state: &state, client: server.Client(), endpoints: endpoints{server.URL, server.URL, server.URL, server.URL}, zones: map[string]string{}}
 				changed, err := p.sync(context.Background(), "example.com", "A", "192.0.2.2")
 				wantError := mode == "ambiguous" || mode == "mismatch" || mode == "rejected"
@@ -241,7 +241,7 @@ func TestCloudflareDelegatedZoneAndWildcard(t *testing.T) {
 		fmt.Fprint(w, `{"success":true,"result":{"id":"new"}}`)
 	}))
 	defer server.Close()
-	state := State{}
+	state := Stats{}
 	p := providerAPI{task: sampleTask(), client: server.Client(), state: &state, endpoints: endpoints{Cloudflare: server.URL}, zones: map[string]string{}}
 	if changed, err := p.sync(context.Background(), "*.sub.example.co.uk", "A", "192.0.2.2"); err != nil || !changed {
 		t.Fatalf("sync: %v", err)
@@ -264,7 +264,7 @@ func TestAliDNSMissingSubzoneHTTP400(t *testing.T) {
 		fmt.Fprint(w, `{"RequestId":"request","DomainName":"example.co.uk"}`)
 	}))
 	defer server.Close()
-	state := State{}
+	state := Stats{}
 	task := sampleTask()
 	task.CredentialID = "id"
 	p := providerAPI{task: task, client: server.Client(), state: &state, endpoints: endpoints{AliDNS: server.URL}, zones: map[string]string{}}
@@ -277,7 +277,7 @@ func TestAliDNSMissingSubzoneHTTP400(t *testing.T) {
 func TestMalformedLookupCannotCreateRecord(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"success":true,"result":null}`) }))
 	defer server.Close()
-	state := State{}
+	state := Stats{}
 	p := providerAPI{task: sampleTask(), client: server.Client(), state: &state, endpoints: endpoints{Cloudflare: server.URL}, zones: map[string]string{"example.com": "zone"}}
 	if _, err := p.sync(context.Background(), "example.com", "A", "192.0.2.2"); err == nil || state.UpdateRequests != 0 {
 		t.Fatal("malformed lookup caused write")
@@ -287,7 +287,7 @@ func TestMalformedLookupCannotCreateRecord(t *testing.T) {
 func TestNoRecordsCodesAreNotAuthenticationErrors(t *testing.T) {
 	for _, code := range []string{"10", "7"} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprintf(w, `{"status":{"code":%q}}`, code) }))
-		state := State{}
+		state := Stats{}
 		p := providerAPI{task: sampleTask(), client: server.Client(), state: &state, endpoints: endpoints{DNSPod: server.URL}, zones: map[string]string{}}
 		err := p.podCall(context.Background(), "Record.List", url.Values{}, false, nil)
 		server.Close()
