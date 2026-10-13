@@ -26,7 +26,7 @@ try {npm.cmd ci; if ($LASTEXITCODE) {throw 'npm ci failed'}; npm.cmd run build; 
 if (!$NetLiteBinary) {
  $NetLiteBinary=Join-Path $root "dist/netlite-linux-$Arch"
  $oldOS=$env:GOOS;$oldArch=$env:GOARCH;$oldCGO=$env:CGO_ENABLED
- try {$env:GOOS='linux';$env:GOARCH=$Arch;$env:CGO_ENABLED='0';go build -trimpath -ldflags '-s -w' -o $NetLiteBinary ./cmd/netlite;if($LASTEXITCODE){throw 'Backend build failed'}}finally{$env:GOOS=$oldOS;$env:GOARCH=$oldArch;$env:CGO_ENABLED=$oldCGO}
+ try {$env:GOOS='linux';$env:GOARCH=$Arch;$env:CGO_ENABLED='0';go build -tags webembed -trimpath -ldflags '-s -w' -o $NetLiteBinary ./cmd/netlite;if($LASTEXITCODE){throw 'Backend build failed'}}finally{$env:GOOS=$oldOS;$env:GOARCH=$oldArch;$env:CGO_ENABLED=$oldCGO}
 }
 $NetLiteBinary=(Resolve-Path -LiteralPath $NetLiteBinary).Path
 Assert-LinuxBinary $NetLiteBinary 'NetLite'

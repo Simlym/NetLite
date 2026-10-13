@@ -8,7 +8,9 @@ Type=simple
 User=netlite
 Group=netlite
 WorkingDirectory=/opt/netlite
-ExecStart=/opt/netlite/bin/netlite --listen 127.0.0.1:18780 --data /var/lib/netlite --web /opt/netlite/web --caddy /opt/netlite/bin/caddy
+Environment=NETLITE_LISTEN=0.0.0.0:18780
+EnvironmentFile=-/etc/netlite/netlite.env
+ExecStart=/opt/netlite/bin/netlite --auth-mode local --listen ${NETLITE_LISTEN} --data /var/lib/netlite --caddy /opt/netlite/bin/caddy
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=25

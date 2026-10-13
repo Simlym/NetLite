@@ -20,7 +20,7 @@ Go 测试、race 检查、vet、前端测试与构建、Linux / Windows 代理 s
 
 在四个产物所在目录运行 `sha256sum --check SHA256SUMS` 校验。版本统一读取 `packaging/fnos/netlite/manifest` 的 `version`；发布标签必须严格对应，例如 manifest 为 `0.1.4` 时使用 `v0.1.4`。更新版本只需修改 manifest。
 
-Linux 包含 `bin/netlite`、标准 `bin/caddy`、`web/` 静态前端、`deploy/netlite.service`、许可说明和 `BUILD-INFO`（版本、架构、源码提交）。飞牛包复用同架构 Linux 包中的二进制和前端，并调用 `scripts/build-fpk.ps1`；固定官方 fnpack 1.2.3，下载后校验 SHA-256，打包后自动修正 Unix 权限并回读核验 `app.tgz` checksum。
+Linux 包含 `bin/netlite`、标准 `bin/caddy`、`web/` 静态前端（同时内嵌在程序内）、`install.sh`、`deploy/netlite.service`、许可说明和 `BUILD-INFO`（版本、架构、源码提交）。飞牛包复用同架构 Linux 包中的二进制和前端，并调用 `scripts/build-fpk.ps1`；固定官方 fnpack 1.2.3，下载后校验 SHA-256，打包后自动修正 Unix 权限并回读核验 `app.tgz` checksum。
 
 ## Linux 运行
 
@@ -31,7 +31,7 @@ umask 077
 ./bin/netlite --listen 127.0.0.1:18780 --data ./data --web ./web --caddy "$PWD/bin/caddy"
 ```
 
-读取 `data/admin-token` 登录 `http://127.0.0.1:18780`。远程管理可用 SSH 隧道：`ssh -N -L 18780:127.0.0.1:18780 user@server`。程序使用独立 Caddy 进程与回环 Admin，不需要目标机器安装 Go 或 Node.js。
+执行 `./bin/netlite info --data ./data` 获取初始化码，打开 `http://127.0.0.1:18780` 创建管理员。正式包建议直接执行 `sudo bash install.sh`，安装流程与 HTTPS 切换见 [Linux 部署](LINUX.md)。远程管理可用 SSH 隧道：`ssh -N -L 18780:127.0.0.1:18780 user@server`。程序使用独立 Caddy 进程与回环 Admin，不需要目标机器安装 Go 或 Node.js。
 
 使用 systemd 时，将包内 `bin/`、`web/` 放到 `/opt/netlite/`，准备 `netlite` 用户及其拥有的 `/var/lib/netlite`（权限 0700），将 `deploy/netlite.service` 复制到 `/etc/systemd/system/`，再执行 `systemctl daemon-reload` 和 `systemctl enable --now netlite`。不要将源代码目录或数据目录一起打包。
 

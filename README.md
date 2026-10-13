@@ -35,12 +35,12 @@ umask 077
 ./bin/netlite --data data-linux --web web/dist --caddy "$PWD/dist/caddy-linux-amd64"
 ```
 
-浏览器打开 http://127.0.0.1:18780；另一终端读取 `data-linux/admin-token` 登录。
+浏览器打开 http://127.0.0.1:18780；另一终端执行 `./bin/netlite info --data data-linux` 获取初始化码并设置管理员账号。Linux 安装、账号恢复与面板 HTTPS 见 [Linux 部署](docs/LINUX.md)。
 ARM64 将 Caddy 脚本第二个架构参数改为 arm64，在对应机器构建后端，或使用 GOOS/GOARCH 交叉构建。
-可复用 deploy/netlite.service：程序放在 /opt/netlite/bin，前端放在 /opt/netlite/web，数据放在 /var/lib/netlite，服务以 netlite 用户运行。
+可复用 deploy/netlite.service：程序放在 /opt/netlite/bin，正式包前端内嵌在程序内，数据放在 /var/lib/netlite，服务以 netlite 用户运行。
 
 远程管理可使用 SSH 隧道：`ssh -N -L 18780:127.0.0.1:18780 user@server`。
-管理默认 HTTP 加令牌，保留在可信局域网或 SSH 隧道；Caddy Admin 固定使用回环地址。
+Linux 管理默认 HTTP 加账号/会话，可从面板设置启用 HTTPS；初始 HTTP，保留在可信局域网或 SSH 隧道；Caddy Admin 固定使用回环地址。
 
 ## Windows 开发
 
@@ -51,7 +51,7 @@ ARM64 将 Caddy 脚本第二个架构参数改为 arm64，在对应机器构建�
 .\scripts\dev.ps1
 ```
 
-浏览器打开 http://127.0.0.1:18780，令牌在 data/admin-token。
+浏览器打开 http://127.0.0.1:18780，首次初始化码通过 `./bin/netlite info --data data` 查看。
 `dev.ps1 -NoCaddy` 可开发 UI、DDNS 和证书管理，无法应用代理规则。
 前端热更新：在 web 目录执行 npm.cmd run dev；Vite API 转发到 18780。
 

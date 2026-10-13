@@ -52,7 +52,7 @@ def wait(check):
 
 def start():
     global process, token
-    process = subprocess.Popen([str(root / "bin/netlite"), "--listen", "127.0.0.1:19780", "--data", str(data), "--web", str(root / "web/dist"), "--caddy", caddy, "--caddy-admin", "127.0.0.1:21190", "--acme-http-listen", "127.0.0.1:19882"], stdout=log, stderr=log)
+    process = subprocess.Popen([str(root / "bin/netlite"), "--auth-mode", "token", "--listen", "127.0.0.1:19780", "--data", str(data), "--web", str(root / "web/dist"), "--caddy", caddy, "--caddy-admin", "127.0.0.1:21190", "--acme-http-listen", "127.0.0.1:19882"], stdout=log, stderr=log)
     wait(lambda: (data / "admin-token").exists())
     token = (data / "admin-token").read_text().strip()
     wait(lambda: api("/status")["proxy"]["running"])
