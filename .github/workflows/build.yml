@@ -1,0 +1,160 @@
+name: Deployment packages
+
+# Called after CI verifies the source and uploads the netlite-web artifact.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read package version and validate release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version=\([0-9][0-9.]*\)$/\1/p' packaging/fnos/netlite/manifest)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid manifest version' >&2; exit 1; }
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME must match manifest version v$version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: netlite-web
+          path: web/dist
+      - name: Build standard Caddy
+        run: bash scripts/build-caddy.sh linux "${{ matrix.arch }}"
+      - name: Build Linux deployment archive
+        run: bash scripts/build-linux.sh "${{ matrix.arch }}" --skip-web-build
+      - name: Smoke test packaged amd64 binaries
+        if: matrix.arch == 'amd64'
+        env:
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          smoke=$(mktemp -d "$RUNNER_TEMP/netlite-smoke-XXXXXX")
+          tar -xzf "dist/netlite-$PACKAGE_VERSION-linux-amd64.tar.gz" -C "$smoke"
+          mkdir -p bin
+          cp "$smoke/bin/netlite" bin/netlite
+          export NETLITE_TEST_CADDY="$smoke/bin/caddy"
+          python3 scripts/smoke-linux.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netlite-linux-${{ matrix.arch }}
+          path: dist/netlite-${{ needs.metadata.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  fnos:
+    needs: [metadata, linux]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      FN_PACK_VERSION: '1.2.3'
+      FN_PACK_SHA256: d7af4bd716b009c58f5bcd931615f39db121e7d4b75dc759e575c4fb2879b6ee
+      PACKAGE_VERSION: ${{ needs.metadata.outputs.version }}
+      TARGET_ARCH: ${{ matrix.arch }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: netlite-linux-${{ matrix.arch }}
+          path: dist/download
+      - name: Download pinned official fnpack
+        run: |
+          New-Item -ItemType Directory -Path tools -Force | Out-Null
+          $url = "https://static2.fnnas.com/fnpack/fnpack-$env:FN_PACK_VERSION-windows-amd64"
+          Invoke-WebRequest -Uri $url -OutFile tools/fnpack.exe
+          $actual = (Get-FileHash tools/fnpack.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:FN_PACK_SHA256) { throw 'Official fnpack SHA-256 mismatch' }
+      - name: Build FPK using the Linux archive contents
+        run: |
+          $bundle = "dist/download/netlite-$env:PACKAGE_VERSION-linux-$env:TARGET_ARCH.tar.gz"
+          New-Item -ItemType Directory -Path dist/linux-input -Force | Out-Null
+          tar -xzf $bundle -C dist/linux-input
+          if ($LASTEXITCODE) { throw 'Linux archive extraction failed' }
+          New-Item -ItemType Directory -Path web/dist -Force | Out-Null
+          Copy-Item -Path 'dist/linux-input/web/*' -Destination web/dist -Recurse
+          ./scripts/build-fpk.ps1 -Arch $env:TARGET_ARCH -SkipWebBuild `
+            -Fnpack tools/fnpack.exe -CaddyBinary dist/linux-input/bin/caddy `
+            -NetLiteBinary dist/linux-input/bin/netlite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netlite-fnos-${{ matrix.arch }}
+          path: dist/netlite-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.fpk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  collect:
+    needs: [metadata, linux, fnos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PACKAGE_VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: netlite-linux-*
+          path: dist/packages
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: netlite-fnos-*
+          path: dist/packages
+          merge-multiple: true
+      - name: Verify complete package set and create SHA-256 checksums
+        working-directory: dist/packages
+        run: |
+          set -euo pipefail
+          files=("netlite-$PACKAGE_VERSION-linux-amd64.tar.gz" "netlite-$PACKAGE_VERSION-linux-arm64.tar.gz"
+                 "netlite-$PACKAGE_VERSION-amd64.fpk" "netlite-$PACKAGE_VERSION-arm64.fpk")
+          sha256sum "${files[@]}" > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          {
+            echo '### Deployment packages'
+            echo "Version: $PACKAGE_VERSION; commit: $GITHUB_SHA"
+            echo 'Download netlite-packages from the workflow artifacts (Linux amd64/arm64, fnOS amd64/arm64, SHA256SUMS).'
+            echo 'fnOS device installation and public ACME/DNS validation are not covered by this build.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netlite-packages
+          path: dist/packages/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

@@ -3,6 +3,8 @@
 轻量跨平台网络管理工具。Go + chi + SQLite 后端，Vue 3 + TypeScript 管理面板。
 第一部署目标为 fnOS FPK，同时支持 Linux 原生运行。
 
+GitHub Actions 自动构建 Linux 与飞牛的 amd64 / arm64 部署包。检查通过后，在 `CI` 运行的 Artifacts 中下载 `netlite-packages`；触发方式、包内容、版本管理与部署说明见 [自动构建与部署包](docs/BUILD.md)。
+
 ## 架构
 
 - NetLite 独立管理证书：签发、私钥与证书存储、自动续期、失败退避和状态。
