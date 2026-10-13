@@ -4,10 +4,12 @@ import {splitTarget, joinTarget} from './proxy-address'
 import {readAPIResponse} from './api-response'
 import DDNSManager from './DDNSManager.vue'
 import CertificateManager from './CertificateManager.vue'
+import PanelSettings from './PanelSettings.vue'
 type Route={id:string;name?:string;domain:string;port:number;scheme:string;upstream:string;certificate_id:string;enabled:boolean}
 type Cert={id:string;domains:string[];mode:string;email:string;staging:boolean;account_id?:string;renew_before_days?:number}
 type Config={revision:number;routes:Route[];certificates:Cert[]}
 const token=ref(''),logged=ref(false),busy=ref(false),message=ref(''),tab=ref('routes'),status=ref<{proxy?:{running:boolean;modules?:string[]}}>({})
+const authMode=ref('local'),initialized=ref(true),username=ref('admin'),password=ref(''),setupCode=ref(''),remember=ref(false),showPassword=ref(false),mustChange=ref(false),newPassword=ref(''),authReady=ref(false),csrf=ref(''),preserveDraft=ref(false),panelCertificate=ref('')
 const config=ref<Config>({revision:0,routes:[],certificates:[]})
 const route=ref<Route>(newRoute()),cert=ref<Cert>(newCert()),domains=ref(''),editing=ref(false)
 const target=ref(splitTarget(route.value.upstream))
@@ -26,10 +28,12 @@ const navigation=[
   {key:'certificates',title:'HTTPS 证书',description:'管理域名证书与自动续期，为服务启用安全访问。',icon:'M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3ZM8 12l3 3 5-6'}]},
  {title:'配置与维护',items:[
   {key:'dnsaccounts',title:'DNS 账号',description:'配置服务商账号，供动态域名和证书验证共用。',icon:'M20 8c0 3-4 5-8 5S4 11 4 8s4-5 8-5 8 2 8 5ZM4 8v8c0 3 4 5 8 5s8-2 8-5V8M4 12c0 3 4 5 8 5s8-2 8-5'},
+  {key:'panel',title:'面板设置',description:'管理登录密码与面板 HTTPS 访问。',icon:'M12 3v3M12 18v3M3 12h3M18 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2M8 12a4 4 0 1 0 8 0 4 4 0 0 0-8 0'},
   {key:'engine',title:'代理引擎',description:'查看代理运行状态、校验配置与排查问题。',icon:'M4 4h16v6H4V4ZM4 14h16v6H4v-6ZM8 7h.01M8 17h.01M12 7h5M12 17h5'}]}
 ]
 const currentPage=computed(()=>navigation.flatMap(group=>group.items).find(item=>item.key===tab.value)!)
-function navigate(key:string){tab.value=key;editing.value=false;message.value=''}
+function navigate(key:string){if(key==='panel'&&authMode.value!=='local'){message.value='当前为兼容令牌模式；面板设置在 Linux 本地账号模式下提供。';return}tab.value=key;editing.value=false;message.value=''}
+function useForPanel(id:string){panelCertificate.value=id;navigate('panel')}
 async function validateConfig(){await action(async()=>{await api('/proxy/validate','POST');message.value='配置校验通过，可以应用到代理。'})}
 async function applyConfig(){await action(async()=>{const r=await api<{applied_revision:number}>('/proxy/apply','POST');savedChanges.value=false;message.value='已应用版本 '+r.applied_revision+'；代理配置已更新。';await refresh()})}
 function closeEditor(){if(!busy.value)editor.value?.close()}
@@ -39,15 +43,17 @@ function askDelete(kind:'routes'|'certificates',key:string,name:string){pendingD
 async function showCaddy(){viewer.value?.showModal();await loadCaddy()}
 async function loadCaddy(){copyMessage.value='';viewBusy.value=true;viewError.value='';try{const view=await api<{draft:unknown;applied:unknown;draft_error?:string}>('/proxy/config');caddyView.value=view;if(view.draft_error)viewError.value=view.draft_error}catch(e){caddyView.value={draft:null,applied:null};viewError.value=e instanceof Error?e.message:String(e)}finally{viewBusy.value=false}}
 async function copyConfig(){try{await navigator.clipboard.writeText(JSON.stringify(caddyView.value[viewTab.value],null,2));copyMessage.value='配置已复制'}catch{viewError.value='浏览器不支持复制，请选择配置文本手动复制。'}}
-function logout(){logged.value=false;token.value='';message.value='';savedChanges.value=false;sessionStorage.removeItem('netlite-token')}
+async function logout(){await action(async()=>{if(authMode.value==='local')await api('/auth/logout','POST');logged.value=false;token.value='';csrf.value='';password.value='';message.value='';sessionStorage.removeItem('netlite-token');sessionStorage.removeItem('netlite-csrf')})}
 function id(){return Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('')}
 function newRoute():Route{return {id:id(),name:'',domain:'',port:18080,scheme:'http',upstream:'http://127.0.0.1:8080',certificate_id:'',enabled:true}}
 function newCert():Cert{return {id:id(),domains:[],renew_before_days:0,mode:'internal',email:'',account_id:'',staging:true}}
-async function api<T>(url:string,method='GET',body?:unknown):Promise<T>{const r=await fetch('/api'+url,{method,headers:{Authorization:'Bearer '+token.value,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});return readAPIResponse<T>(r,url)}
-async function download(path:string,name:string){const response=await fetch('/api'+path,{headers:{Authorization:'Bearer '+token.value}});if(!response.ok)throw new Error('证书文件尚未就绪');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
+async function api<T>(url:string,method='GET',body?:unknown):Promise<T>{const headers:Record<string,string>={'Content-Type':'application/json'};if(authMode.value==='token')headers.Authorization='Bearer '+token.value;else headers['X-CSRF-Token']=sessionStorage.getItem('netlite-csrf')||csrf.value;const r=await fetch('/api'+url,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});if(r.status===401&&logged.value){logged.value=false;preserveDraft.value=true;message.value='登录已过期，请重新登录；未保存的编辑内容仍保留。'}return readAPIResponse<T>(r,url)}
+async function download(path:string,name:string){const response=await fetch('/api'+path,{headers:authMode.value==='token'?{Authorization:'Bearer '+token.value}:{}});if(!response.ok)throw new Error('证书文件尚未就绪');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
 async function action(fn:()=>Promise<void>){busy.value=true;message.value='';messageError.value=false;try{await fn()}catch(e){messageError.value=true;message.value=e instanceof Error?e.message:String(e)}finally{busy.value=false}}
 async function refresh(){status.value=await api('/status')}
-async function login(){await action(async()=>{config.value=await api('/config');logged.value=true;sessionStorage.setItem('netlite-token',token.value);await refresh();await loadDNSAccounts()})}
+async function enter(){if(authMode.value==='local'){const me=await api<{username:string;must_change_password:boolean;csrf_token:string}>('/auth/me');username.value=me.username;mustChange.value=me.must_change_password;csrf.value=me.csrf_token;sessionStorage.setItem('netlite-csrf',me.csrf_token);if(mustChange.value)return;password.value='';setupCode.value=''}else sessionStorage.setItem('netlite-token',token.value);if(!preserveDraft.value)config.value=await api('/config');preserveDraft.value=false;logged.value=true;await refresh();await loadDNSAccounts()}
+async function login(){await action(async()=>{if(authMode.value==='local'){await api(initialized.value?'/auth/login':'/auth/setup','POST',{username:username.value,password:password.value,code:setupCode.value,remember:remember.value});initialized.value=true}await enter()})}
+async function changeInitialPassword(){await action(async()=>{await api('/auth/password','POST',{old_password:password.value,new_password:newPassword.value});password.value='';newPassword.value='';await enter()})}
 async function save(){config.value=await api('/config','PUT',config.value);savedChanges.value=true;message.value='配置已保存。证书自动申请和续期；代理规则需点击「应用配置」生效。'}
 function editRoute(x:Route){route.value={...x};target.value=splitTarget(x.upstream);editing.value=true;openEditor()}
 async function loadDNSAccounts(){const a=await api<{accounts:{id:string;name:string;provider:string}[]}>('/dns/accounts');dnsAccounts.value=a.accounts;const c=await api<{certificate_providers:string[]}>('/dns-capabilities');certificateProviders.value=c.certificate_providers}
@@ -56,11 +62,18 @@ function upsert<T extends {id:string}>(list:T[],x:T){const i=list.findIndex(a=>a
 async function submitRoute(){modalError.value='';try{route.value.upstream=joinTarget(target.value)}catch(e){modalError.value=e instanceof Error?e.message:String(e);return}await action(async()=>{const old=JSON.parse(JSON.stringify(config.value));upsert(config.value.routes,{...route.value});try{await save();route.value=newRoute();editing.value=false;editor.value?.close()}catch(e){config.value=old;modalError.value=e instanceof Error?e.message:String(e);throw e}})}
 async function submitCert(){modalError.value='';await action(async()=>{const old=JSON.parse(JSON.stringify(config.value));upsert(config.value.certificates,{...cert.value,account_id:cert.value.mode==='dns'?cert.value.account_id:'',domains:domains.value.split(/[,\s]+/).filter(Boolean)});try{await save();cert.value=newCert();domains.value='';editing.value=false;editor.value?.close()}catch(e){config.value=old;modalError.value=e instanceof Error?e.message:String(e);throw e}})}
 async function remove(kind:'routes'|'certificates',key:string){await action(async()=>{const old=JSON.parse(JSON.stringify(config.value));config.value[kind]=config.value[kind].filter(x=>x.id!==key) as Route[]&Cert[];try{await save();deletion.value?.close()}catch(e){config.value=old;modalError.value=e instanceof Error?e.message:String(e);throw e}})}
-onMounted(()=>{token.value=sessionStorage.getItem('netlite-token')||'';if(token.value)login()})
+onMounted(async()=>{if(new URLSearchParams(window.location.search).get('panel')==='confirm')tab.value='panel';try{const state=await api<{mode:string;initialized:boolean}>('/auth/state');authMode.value=state.mode;initialized.value=state.initialized;if(state.mode==='token'){token.value=sessionStorage.getItem('netlite-token')||'';if(token.value)await enter()}else if(state.initialized){try{await enter()}catch{}}}catch(e){message.value=e instanceof Error?e.message:String(e)}finally{authReady.value=true}})
 </script>
 <template>
  <main :class="logged?'app-shell':'login-shell'">
- <template v-if="!logged"><div class="brand login-brand"><span class="logo">N</span><div><h1>NetLite</h1><p>让网络管理轻一点</p></div></div><section class="login card"><span class="eyebrow">本地管理</span><h2>欢迎使用 NetLite</h2><p class="muted">登录后，管理服务访问、域名解析与 HTTPS 证书。</p><form @submit.prevent="login"><label>管理令牌<input v-model="token" type="password" autocomplete="current-password" placeholder="输入管理令牌" required></label><p class="muted">令牌保存在应用私有数据目录的 admin-token 文件中。</p><button :disabled="busy">{{busy?'正在登录…':'进入管理面板'}}</button></form><p v-if="message" class="form-error" role="alert">{{message}}</p></section></template>
+ <template v-if="!logged"><div class="brand login-brand"><span class="logo">N</span><div><h1>NetLite</h1><p>让网络管理轻一点</p></div></div><section class="login card"><span class="eyebrow">管理面板</span><h2>{{mustChange?'设置你的新密码':initialized?'欢迎使用 NetLite':'初始化管理员'}}</h2><p class="muted">{{mustChange?'请替换临时密码后继续使用。':'登录后，管理服务访问、域名解析与 HTTPS 证书。'}}</p>
+ <form v-if="authReady" @submit.prevent="mustChange?changeInitialPassword():login()">
+  <template v-if="authMode==='token'"><label>管理令牌<input v-model="token" type="password" autocomplete="current-password" required></label><p class="muted">fnOS 兼容模式：令牌位于应用私有目录 admin-token。</p></template>
+  <template v-else-if="mustChange"><label>临时密码<input v-model="password" :type="showPassword?'text':'password'" autocomplete="current-password" required></label><label>新密码<input v-model="newPassword" :type="showPassword?'text':'password'" autocomplete="new-password" minlength="12" required></label></template>
+  <template v-else><label v-if="!initialized">初始化码<input v-model="setupCode" type="password" autocomplete="off" required></label><label>用户名<input v-model="username" autocomplete="username" required></label><label>密码<input v-model="password" :type="showPassword?'text':'password'" :autocomplete="initialized?'current-password':'new-password'" :minlength="initialized?undefined:12" required></label><label class="panel-check"><input v-model="remember" type="checkbox">在此设备保持登录</label></template>
+  <label v-if="authMode==='local'" class="panel-check"><input v-model="showPassword" type="checkbox">显示密码</label>
+  <button :disabled="busy">{{busy?'处理中…':mustChange?'设置密码并进入':initialized?'进入管理面板':'创建管理员并进入'}}</button>
+ </form><p v-else class="muted">正在检查登录状态…</p><p v-if="authMode==='local'" class="muted">{{initialized?'忘记密码？在服务器执行 sudo netlite reset-password，通过标准输入提供新密码。':'在服务器执行 sudo netlite info，获取初始化码；源码运行请附加 --data 数据目录。'}}</p><p v-if="message" class="form-error" role="alert">{{message}}</p></section></template>
  <template v-else>
  <aside class="sidebar">
   <div class="brand"><span class="logo">N</span><div><h1>NetLite</h1><p>让网络管理轻一点</p></div></div>
@@ -68,8 +81,9 @@ onMounted(()=>{token.value=sessionStorage.getItem('netlite-token')||'';if(token.
   <div class="sidebar-bottom"><button class="engine-link" @click="navigate('engine')"><span :class="['dot',status.proxy?.running?'on':'']"></span><span>代理{{status.proxy?.running?'运行中':'未运行'}}</span><span aria-hidden="true">›</span></button><div class="sidebar-meta"><span>v0.1 · 本地管理</span><button class="text-button" @click="logout">退出登录</button></div></div>
  </aside>
  <div class="workspace">
- <header class="page-header"><div><p class="breadcrumb">{{tab==='engine'||tab==='dnsaccounts'?'配置与维护':'服务管理'}} <span>/</span> {{currentPage.title}}</p><h2>{{tab==='ddns'?'动态域名（DDNS）':currentPage.title}}</h2><p class="page-description">{{currentPage.description}}</p></div><span class="local-badge"><span class="dot on"></span>本地管理面板</span></header>
+ <header class="page-header"><div><p class="breadcrumb">{{tab==='engine'||tab==='dnsaccounts'||tab==='panel'?'配置与维护':'服务管理'}} <span>/</span> {{currentPage.title}}</p><h2>{{tab==='ddns'?'动态域名（DDNS）':currentPage.title}}</h2><p class="page-description">{{currentPage.description}}</p></div><span class="local-badge"><span class="dot on"></span>本地管理面板</span></header>
  <div v-if="message" :class="['message',{error:messageError}]" :role="messageError?'alert':'status'">{{message}}<button class="icon-button" aria-label="关闭提示" @click="message=''">×</button></div>
+ <PanelSettings v-if="tab==='panel'" :api="api" :certificates="config.certificates" :selected="panelCertificate" @certificates="navigate('certificates')" />
  <div v-if="tab==='routes'" class="content-list">
  <div v-if="config.routes.length||savedChanges" class="apply-bar"><div><span class="apply-symbol" aria-hidden="true">↗</span><div><strong>{{savedChanges?'配置已保存，等待应用':'让配置生效'}}</strong><p>规则保存后，点击应用以更新服务访问入口。</p></div></div><button :disabled="busy" @click="applyConfig">{{busy?'处理中…':'应用配置'}}</button></div>
  <section class="card"><div class="section-head"><div><h2>代理规则 <span class="heading-count">{{config.routes.length}}</span></h2><p class="overview">将域名和端口转发到内网服务，支持 WebSocket。</p></div><button v-if="config.routes.length" :disabled="busy" @click="add">＋ 添加代理</button></div>
@@ -86,7 +100,7 @@ onMounted(()=>{token.value=sessionStorage.getItem('netlite-token')||'';if(token.
  </section>
  <div class="related-grid"><button class="related-card" @click="navigate('certificates')"><span class="related-icon" aria-hidden="true">↗</span><span><strong>为服务启用 HTTPS</strong><span>先添加证书，再为代理选择 HTTPS 协议。</span></span><span class="related-arrow" aria-hidden="true">→</span></button><button class="related-card" @click="navigate('ddns')"><span class="related-icon" aria-hidden="true">↻</span><span><strong>公网 IP 会变化？</strong><span>使用动态域名，自动更新域名解析。</span></span><span class="related-arrow" aria-hidden="true">→</span></button></div>
  </div>
- <CertificateManager v-if="tab==='certificates'" :certificates="config.certificates" :api="api" :download="download" @add="add" @edit="editCert" @remove="c=>askDelete('certificates',c.id,c.domains.join(', '))" />
+ <CertificateManager @panel="useForPanel" :panel-enabled="authMode==='local'" v-if="tab==='certificates'" :certificates="config.certificates" :api="api" :download="download" @add="add" @edit="editCert" @remove="c=>askDelete('certificates',c.id,c.domains.join(', '))" />
  <DDNSManager v-if="tab==='ddns'" :api="api" @manage-accounts="navigate('dnsaccounts')" />
  <DDNSManager v-if="tab==='dnsaccounts'" :api="api" mode="accounts" />
  <template v-if="tab==='engine'"><section class="card engine-card"><div class="section-head"><div><h2>运行状态</h2><p class="overview">反向代理由独立 Caddy 进程提供。</p></div><button class="secondary" :disabled="busy" @click="action(refresh)">刷新状态</button></div><div class="engine-metrics"><div><span>代理服务</span><strong :class="['engine-status',{running:status.proxy?.running}]"><span :class="['dot',status.proxy?.running?'on':'']"></span>{{status.proxy?.running?'运行中':'未运行'}}</strong></div><div><span>代理引擎</span><strong>Caddy</strong></div><div><span>已保存配置版本</span><strong>{{config.revision}}</strong></div></div><p v-if="!status.proxy?.running" class="empty">代理尚未运行，请检查独立 Caddy 进程后刷新状态。</p></section><section class="card engine-card"><div class="section-head"><div><h2>配置与诊断</h2><p class="overview">校验已保存的规则，或查看配置详情以排查问题。</p></div></div><div class="diagnostic-row"><div><strong>校验配置</strong><p>检查当前规则能否生成有效的代理配置。</p></div><button class="secondary" :disabled="busy" @click="validateConfig">校验配置</button></div><div class="diagnostic-row"><div><strong>查看 Caddy 配置</strong><p>查看配置草稿和最近已应用的配置，支持复制。</p></div><button class="secondary" :disabled="busy" @click="showCaddy">查看配置</button></div><div class="diagnostic-row"><div><strong>应用配置</strong><p>将已保存的代理规则与证书配置应用到代理。</p></div><button :disabled="busy" @click="applyConfig">应用配置</button></div></section></template>

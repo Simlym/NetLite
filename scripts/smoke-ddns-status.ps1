@@ -13,7 +13,7 @@ Push-Location $root
 try {
  go build -o bin/netlite.exe ./cmd/netlite
  if($LASTEXITCODE){throw 'Backend build failed'}
- $process=Start-Process -FilePath (Join-Path $root 'bin/netlite.exe') -ArgumentList @('--listen','127.0.0.1:19780','--data',('"'+$data+'"'),'--web',('"'+$root+'/web/dist"'),'--caddy',('"'+$root+'/tools/caddy.exe"'),'--caddy-admin','127.0.0.1:21790') -WindowStyle Hidden -PassThru -RedirectStandardOutput "$data/stdout.log" -RedirectStandardError "$data/stderr.log"
+ $process=Start-Process -FilePath (Join-Path $root 'bin/netlite.exe') -ArgumentList @('--auth-mode','token','--listen','127.0.0.1:19780','--data',('"'+$data+'"'),'--web',('"'+$root+'/web/dist"'),'--caddy',('"'+$root+'/tools/caddy.exe"'),'--caddy-admin','127.0.0.1:21790') -WindowStyle Hidden -PassThru -RedirectStandardOutput "$data/stdout.log" -RedirectStandardError "$data/stderr.log"
  $ready=$false
  for($i=0;$i -lt 30;$i++){Start-Sleep -Milliseconds 200;try {Invoke-RestMethod "$base/healthz" | Out-Null;$ready=$true;break}catch{}}
  if(!$ready){throw 'Test backend did not become ready'}

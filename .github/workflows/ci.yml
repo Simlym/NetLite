@@ -24,8 +24,9 @@ jobs:
       - name: Prepare dependencies and formatting
         run: |
           go mod tidy
-          gofmt -w cmd internal
-          git diff -- go.mod go.sum cmd internal
+          gofmt -w cmd internal web/*.go
+          git diff -- go.mod go.sum cmd internal web/*.go > /tmp/netlite-format.patch
+          cat /tmp/netlite-format.patch
       - name: Build standard Caddy
         run: |
           mkdir -p tools bin
@@ -51,8 +52,20 @@ jobs:
           npm ci
           npm test
           npm run build
+      - name: Linux panel authentication and embedded HTTPS
+        run: |
+          CGO_ENABLED=0 go build -tags webembed -o bin/netlite ./cmd/netlite
+          python3 scripts/smoke-panel.py
+          bash -n scripts/install-linux.sh scripts/build-linux.sh
+      - name: Upload formatting diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: netlite-format-diagnostics
+          path: /tmp/netlite-format.patch
+          retention-days: 1
       - name: Enforce checked-in dependencies and formatting
-        run: git diff --exit-code -- go.mod go.sum cmd internal
+        run: git diff --exit-code -- go.mod go.sum cmd internal web/*.go
       - name: Share verified frontend with deployment builds
         uses: actions/upload-artifact@v4
         with:

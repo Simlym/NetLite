@@ -1,3 +1,8 @@
+> Linux 新版默认使用账号会话：`/api/auth/state`、`setup`、`login`、`me`、`password`、`logout`。
+> 写接口需要 `X-CSRF-Token`（由 `me` 返回）和同源请求。兼容 token 模式须显式指定 `--auth-mode token`。
+> 面板设置使用 `GET/PUT /api/panel`，测试后在新 HTTPS 地址调用 `POST /api/panel/confirm`；`POST /api/panel/cancel` 取消测试。
+> 具体登录、恢复和 HTTPS 切换流程见 [Linux 部署](LINUX.md)。
+
 # API
 
 全部 /api 请求需要 Authorization: Bearer <admin-token>。/healthz 不需要鉴权，仅表示后端 HTTP 服务存活。

@@ -8,7 +8,7 @@ if($LASTEXITCODE){throw 'Build failed'}
 $exe=Join-Path $root 'bin/netlite.exe';$caddy=Join-Path $root 'tools/caddy.exe'
 $process=$null;$upstream=$null
 function Start-NetLite {
- Start-Process -FilePath $exe -ArgumentList @('--listen','127.0.0.1:19780','--data',('"'+$data+'"'),'--web',('"'+$root+'/web/dist"'),'--caddy',('"'+$caddy+'"'),'--caddy-admin','127.0.0.1:21190') -WindowStyle Hidden -PassThru -RedirectStandardOutput "$data/stdout.log" -RedirectStandardError "$data/stderr.log"
+ Start-Process -FilePath $exe -ArgumentList @('--auth-mode','token','--listen','127.0.0.1:19780','--data',('"'+$data+'"'),'--web',('"'+$root+'/web/dist"'),'--caddy',('"'+$caddy+'"'),'--caddy-admin','127.0.0.1:21190') -WindowStyle Hidden -PassThru -RedirectStandardOutput "$data/stdout.log" -RedirectStandardError "$data/stderr.log"
 }
 function Stop-NetLite {
  if($process -and !$process.HasExited){

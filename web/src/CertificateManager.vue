@@ -2,8 +2,8 @@
 import {ref,onMounted,onUnmounted} from 'vue'
 type Cert={id:string;domains:string[];mode:string;email:string;staging:boolean;account_id?:string;renew_before_days?:number}
 type State={id:string;status:string;working:boolean;not_after:string;renew_at:string;last_issued:string;next_attempt:string;last_error?:string;reload_error?:string}
-const props=defineProps<{certificates:Cert[];api:<T>(path:string,method?:string,body?:unknown)=>Promise<T>;download:(path:string,name:string)=>Promise<void>}>()
-const emit=defineEmits<{add:[];edit:[Cert];remove:[Cert]}>()
+const props=defineProps<{certificates:Cert[];panelEnabled?:boolean;api:<T>(path:string,method?:string,body?:unknown)=>Promise<T>;download:(path:string,name:string)=>Promise<void>}>()
+const emit=defineEmits<{add:[];edit:[Cert];remove:[Cert];panel:[string]}>()
 const states=ref<Record<string,State>>({}),error=ref(''),busy=ref(false)
 let stopped=false,timer:ReturnType<typeof setTimeout>
 function date(s?:string){return !s||s.startsWith('0001-')?'—':new Date(s).toLocaleString()}
@@ -25,7 +25,7 @@ onUnmounted(()=>{stopped=true;clearTimeout(timer)})
     <p v-if="states[c.id]?.last_error" class="form-error">{{states[c.id]?.last_error}} · 下次重试：{{date(states[c.id]?.next_attempt)}}</p>
     <p v-if="states[c.id]?.reload_error" class="form-error">{{states[c.id]?.reload_error}}</p>
    </div>
-   <div class="small-actions"><button class="secondary" :disabled="busy||states[c.id]?.working" @click="issue(c)">申请／续期</button><button v-if="states[c.id]?.last_issued&&!states[c.id]?.last_issued.startsWith('0001-')" class="secondary" :disabled="busy" @click="action(()=>download('/certificates/'+c.id+'/certificate',c.id+'.pem'))">下载证书</button><button class="secondary" :disabled="busy" @click="emit('edit',c)">编辑</button><button class="danger" :disabled="busy||states[c.id]?.working" @click="emit('remove',c)">删除</button></div>
+   <div class="small-actions"><button v-if="panelEnabled" class="secondary" :disabled="busy||!states[c.id]?.last_issued||states[c.id]?.last_issued.startsWith('0001-')" @click="emit('panel',c.id)">用于面板 HTTPS</button><button class="secondary" :disabled="busy||states[c.id]?.working" @click="issue(c)">申请／续期</button><button v-if="states[c.id]?.last_issued&&!states[c.id]?.last_issued.startsWith('0001-')" class="secondary" :disabled="busy" @click="action(()=>download('/certificates/'+c.id+'/certificate',c.id+'.pem'))">下载证书</button><button class="secondary" :disabled="busy" @click="emit('edit',c)">编辑</button><button class="danger" :disabled="busy||states[c.id]?.working" @click="emit('remove',c)">删除</button></div>
   </article>
   <button v-if="certificates.some(c=>c.mode==='internal')" class="secondary" :disabled="busy" @click="action(()=>download('/certificates/root','netlite-root-ca.pem'))">下载内部 CA 根证书</button>
   <p v-if="certificates.length" class="muted">内部 CA 和测试 CA 证书需要客户端信任。下载仅包含公开证书，不包含私钥。</p>

@@ -32,9 +32,11 @@ cleanup() {
 trap cleanup EXIT
 bundle="$stage/bundle"
 mkdir -p "$bundle/bin" "$bundle/web" "$bundle/deploy" "$bundle/licenses"
-CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags '-s -w' -o "$bundle/bin/netlite" ./cmd/netlite
+CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags webembed -trimpath -ldflags '-s -w' -o "$bundle/bin/netlite" ./cmd/netlite
 cp "$caddy" "$bundle/bin/caddy"
 cp -R web/dist/. "$bundle/web/"
+cp scripts/install-linux.sh "$bundle/install.sh"
+cp docs/LINUX.md "$bundle/LINUX.md"
 cp deploy/netlite.service "$bundle/deploy/"
 cp docs/BUILD.md "$bundle/README.md"
 cp THIRD_PARTY_NOTICES.md docs/licenses/acmez-LICENSE.txt "$bundle/licenses/"
@@ -50,5 +52,5 @@ tar --owner=0 --group=0 --numeric-owner --mode=755 \
   -rf "$stage/package.tar" -C "$bundle" ./bin/netlite ./bin/caddy
 gzip -n -c "$stage/package.tar" > "$output"
 tar -tzf "$output" ./bin/netlite ./bin/caddy ./web/index.html ./deploy/netlite.service \
-  ./licenses/THIRD_PARTY_NOTICES.md ./licenses/acmez-LICENSE.txt ./BUILD-INFO >/dev/null
+  ./install.sh ./LINUX.md ./licenses/THIRD_PARTY_NOTICES.md ./licenses/acmez-LICENSE.txt ./BUILD-INFO >/dev/null
 echo "Linux: $output"
