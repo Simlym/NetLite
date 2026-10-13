@@ -199,6 +199,11 @@ func TestAutomaticRollbackAndRenewal(t *testing.T) {
 	if m.cert.Load() != first {
 		t.Fatal("cancel without pending switch damaged confirmed TLS")
 	}
+	// Simulate an older issuance without waiting for the production rate limit.
+	issued := time.Now().Add(-2 * time.Minute).Format(time.RFC3339Nano)
+	if _, err := m.DB.DB.Exec("UPDATE certificate_state SET body=json_set(body,'$.State.last_issued',?) WHERE id=?", issued, certificates.PolicyKey(cfg.Certificates[0])); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.Certificates.Request(cfg.Certificates[0], true); err != nil {
 		t.Fatal(err)
 	}
