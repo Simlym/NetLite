@@ -154,3 +154,20 @@ func TestPasswordResetRacingLoginCannotCreateOldSession(t *testing.T) {
 		t.Fatal("failed login issued a cookie")
 	}
 }
+
+func TestHTTPLoginCookieBecomesSecureOnHTTPS(t *testing.T) {
+	m := testAuth(t)
+	if err := m.Create("admin", "long enough password", false); err != nil {
+		t.Fatal(err)
+	}
+	w := request(m, "login", "POST", map[string]string{"username": "admin", "password": "long enough password"}, nil, "", false)
+	cookie := w.Result().Cookies()[0]
+	if cookie.Secure {
+		t.Fatal("initial HTTP login unusable")
+	}
+	w = request(m, "me", "GET", nil, cookie, "", true)
+	cookies := w.Result().Cookies()
+	if w.Code != 200 || len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly {
+		t.Fatal("HTTPS did not protect existing cookie", w.Code, cookies)
+	}
+}

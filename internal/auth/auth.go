@@ -299,6 +299,20 @@ func (m *Manager) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case path == "me" && r.Method == "GET":
+		// Promote an existing HTTP login cookie when the browser opens HTTPS.
+		if r.TLS != nil {
+			cookie, _ := r.Cookie(CookieName)
+			var expires, lifetime int64
+			if err := m.DB.QueryRow("SELECT expires,lifetime FROM auth_session WHERE id=?", digest(cookie.Value)).Scan(&expires, &lifetime); err != nil {
+				fail(w, 401, fmt.Errorf("请重新登录"))
+				return
+			}
+			age := 0
+			if lifetime > 8*3600 {
+				age = int(expires - time.Now().Unix())
+			}
+			http.SetCookie(w, &http.Cookie{Name: CookieName, Value: cookie.Value, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: age})
+		}
 		write(w, 200, p)
 	case path == "logout" && r.Method == "POST":
 		cookie, _ := r.Cookie(CookieName)

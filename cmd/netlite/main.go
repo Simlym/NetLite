@@ -239,8 +239,13 @@ func run() error {
 				next.ServeHTTP(w, r)
 			})
 		})
-		r.Handle("/panel", http.HandlerFunc(panelService.Handler))
-		r.Handle("/panel/*", http.HandlerFunc(panelService.Handler))
+		panelHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			configMu.Lock()
+			defer configMu.Unlock()
+			panelService.Handler(w, req)
+		})
+		r.Handle("/panel", panelHandler)
+		r.Handle("/panel/*", panelHandler)
 		ddnsRouter := ddnsService.Router()
 		r.Mount("/dns", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			configMu.Lock()
