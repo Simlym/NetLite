@@ -5,8 +5,8 @@ go 1.25.0
 require (
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/mholt/acmez/v3 v3.1.2
-	modernc.org/sqlite v1.39.1
 	golang.org/x/crypto v0.27.0
+	modernc.org/sqlite v1.39.1
 )
 
 require (

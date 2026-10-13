@@ -7,21 +7,21 @@ const emit=defineEmits<{certificates:[]}>()
 const panel=ref<Panel>(),enabled=ref(true),domain=ref(''),certificate=ref(''),redirect=ref(true),busy=ref(false),error=ref(''),message=ref(''),states=ref<Record<string,{status:string;not_after:string}>>({})
 const newPassword=ref(''),oldPassword=ref(''),showPassword=ref(false)
 let poll:ReturnType<typeof setInterval>|undefined
-async function load(update=false){panel.value=await props.api('/panel');const res=await props.api<{certificates:Record<string,{status:string;not_after:string}>}>('/certificates/');states.value=res.certificates;if(update){enabled.value=panel.value.enabled||Boolean(props.selected);domain.value=panel.value.domain;certificate.value=props.selected||panel.value.certificate_id;redirect.value=panel.value.enabled?panel.value.redirect:true;if(props.selected)selectCertificate()}}
+async function load(update=false){const settings=await props.api<Panel>('/panel');panel.value=settings;const res=await props.api<{certificates:Record<string,{status:string;not_after:string}>}>('/certificates/');states.value=res.certificates;if(update){enabled.value=settings.enabled||Boolean(props.selected);domain.value=settings.domain;certificate.value=props.selected||settings.certificate_id;redirect.value=settings.enabled?settings.redirect:true;if(props.selected)selectCertificate()}}
 function selectCertificate(){const c=props.certificates.find(c=>c.id===certificate.value);if(c&&!c.domains.some(d=>d===domain.value)){domain.value=c.domains.find(d=>!d.startsWith('*.'))||''}}
 async function action(fn:()=>Promise<void>){busy.value=true;error.value='';message.value='';try{await fn()}catch(e){error.value=e instanceof Error?e.message:String(e)}finally{busy.value=false}}
 async function enable(){await action(async()=>{const result=await props.api<{pending:boolean;url:string}>('/panel','PUT',{enabled:enabled.value,domain:domain.value,certificate_id:certificate.value,redirect:redirect.value});if(result.pending){message.value='HTTPS 已开启测试。请打开新地址，登录后在本页确认；两分钟内未确认会自动恢复原设置。';await load()}else{window.location.assign(result.url)}})}
 async function confirm(){await action(async()=>{await props.api('/panel/confirm','POST');await load();message.value='面板 HTTPS 已启用，证书续期后会自动更新。'})}
 async function cancel(){await action(async()=>{await props.api('/panel/cancel','POST');await load(true);message.value='已恢复原访问设置。'})}
 async function password(){await action(async()=>{await props.api('/auth/password','POST',{old_password:oldPassword.value,new_password:newPassword.value});oldPassword.value='';newPassword.value='';const me=await props.api<{csrf_token:string}>('/auth/me');sessionStorage.setItem('netlite-csrf',me.csrf_token);message.value='密码已修改，其他登录会话已注销。'})}
-onMounted(()=>{action(()=>load(true));poll=setInterval(()=>{if(panel.value?.pending)action(()=>load())},5000)})
+onMounted(()=>{action(()=>load(true));poll=setInterval(()=>{if(panel.value?.pending&&!busy.value)load().catch(e=>{error.value=e instanceof Error?e.message:String(e)})},5000)})
 onUnmounted(()=>{if(poll)clearInterval(poll)})
 </script>
 <template>
  <div class="content-list">
  <section class="card">
   <div class="section-head"><div><h2>面板 HTTPS</h2><p class="overview">使用已有证书保护管理页面，证书续期后自动更新。</p></div><span v-if="panel" class="local-badge">{{panel.pending?'等待访问确认':panel.enabled?'已启用 HTTPS':'当前使用 HTTP'}}</span></div>
-  <div v-if="panel?.pending" class="message" role="status"><div><strong>请确认新 HTTPS 地址可以访问</strong><p>在新地址登录后点击确认。未在两分钟内确认将恢复原设置。</p><a :href="panel.url" target="_blank" rel="noopener">{{panel.url}} ↗</a><div class="small-actions"><button :disabled="busy" @click="confirm">我已通过新地址访问，确认启用</button><button class="secondary" :disabled="busy" @click="cancel">取消切换</button></div></div></div>
+  <div v-if="panel?.pending" class="message" role="status"><div><strong>请确认新 HTTPS 地址可以访问</strong><p>在新地址登录后点击确认。未在两分钟内确认将恢复原设置。</p><a :href="panel.url+'/?panel=confirm'" target="_blank" rel="noopener">{{panel.url}} ↗</a><div class="small-actions"><button :disabled="busy" @click="confirm">我已通过新地址访问，确认启用</button><button class="secondary" :disabled="busy" @click="cancel">取消切换</button></div></div></div>
   <form v-else class="panel-form" @submit.prevent="enable">
    <label class="panel-check"><input v-model="enabled" type="checkbox">启用 HTTPS 访问</label>
    <template v-if="enabled">

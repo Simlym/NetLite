@@ -15,15 +15,15 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"netlite/internal/auth"
 	"netlite/internal/certificates"
- "netlite/internal/auth"
- "netlite/internal/panel"
- frontend "netlite/web"
 	"netlite/internal/dnsprovider"
 	"netlite/internal/dnstask"
 	"netlite/internal/model"
+	"netlite/internal/panel"
 	"netlite/internal/proxy"
 	"netlite/internal/store"
+	frontend "netlite/web"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -44,12 +44,15 @@ func fail(w http.ResponseWriter, status int, e error) {
 	respond(w, status, map[string]string{"error": e.Error()})
 }
 func main() {
- if len(os.Args)>1 {
-  switch os.Args[1] {
-  case "init-admin","reset-password","reset-https","info":
-   if err := command(os.Args[1:]); err != nil { log.Fatal(err) }; return
-  }
- }
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init-admin", "reset-password", "reset-https", "info":
+			if err := command(os.Args[1:]); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+	}
 	if e := run(); e != nil {
 		log.Fatal(e)
 	}
@@ -58,14 +61,16 @@ func run() error {
 	listen := flag.String("listen", "127.0.0.1:18780", "management address")
 	data := flag.String("data", "data", "private persistent directory")
 	web := flag.String("web", "", "development frontend directory; releases embed the frontend")
- authMode := flag.String("auth-mode","local","local or token; fnos-gateway is reserved and fails closed")
+	authMode := flag.String("auth-mode", "local", "local or token; fnos-gateway is reserved and fails closed")
 	binary := flag.String("caddy", "caddy", "independent Caddy executable")
 	admin := flag.String("caddy-admin", "127.0.0.1:20190", "private Caddy admin")
 	httpChallenge := flag.String("acme-http-listen", "0.0.0.0:18082", "HTTP-01 validation listener (public TCP 80 must reach it)")
 	proxyKind := flag.String("proxy-engine", "caddy", "proxy engine; currently caddy")
 	noCaddy := flag.Bool("no-caddy", false, "development only: CRUD without engine")
 	flag.Parse()
- if *authMode != "local" && *authMode != "token" { return fmt.Errorf("authentication mode unavailable: %s",*authMode) }
+	if *authMode != "local" && *authMode != "token" {
+		return fmt.Errorf("authentication mode unavailable: %s", *authMode)
+	}
 	if *proxyKind != "caddy" {
 		return fmt.Errorf("unsupported proxy engine; currently caddy is available")
 	}
@@ -127,7 +132,11 @@ func run() error {
 		return e
 	}
 	defer s.DB.Close()
- localAuth,e := auth.Open(s.DB,string(token)); if e != nil { return e }
+	localAuth, e := auth.Open(s.DB, string(token))
+	if e != nil {
+		return e
+	}
+	var identityProvider auth.Provider = localAuth
 	engine := proxy.New(*binary, *data, *admin)
 	var adapter proxy.ProxyEngine = engine
 	var configMu sync.Mutex
@@ -144,9 +153,15 @@ func run() error {
 	certService.ResolveAccount = ddnsService.ResolveAccount
 	engine.ResolveCertificate = certService.Files
 	certService.Applied = adapter.Applied
- panelService,e := panel.Open(s,certService,managePort); if e != nil { return e }; defer panelService.Close()
+	panelService, e := panel.Open(s, certService, managePort)
+	if e != nil {
+		return e
+	}
+	defer panelService.Close()
 	certService.Reload = func(check context.Context) error {
-  if err := panelService.Reload(check); err != nil { return err }
+		if err := panelService.Reload(check); err != nil {
+			return err
+		}
 		if *noCaddy {
 			return nil
 		}
@@ -192,26 +207,42 @@ func run() error {
 		})
 	})
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
- if *authMode == "local" { r.Handle("/api/auth/*",http.HandlerFunc(localAuth.Handler)) } else {
-  r.Get("/api/auth/state",func(w http.ResponseWriter,r *http.Request){respond(w,200,map[string]any{"mode":"token","initialized":true})})
- }
+	if *authMode == "local" {
+		r.Handle("/api/auth/*", http.HandlerFunc(localAuth.Handler))
+	} else {
+		r.Get("/api/auth/state", func(w http.ResponseWriter, r *http.Request) {
+			respond(w, 200, map[string]any{"mode": "token", "initialized": true})
+		})
+	}
 	r.Route("/api", func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    if !auth.CheckOrigin(r) { fail(w,403,fmt.Errorf("跨站请求被拒绝")); return }
-    if *authMode == "local" {
-     principal,err := localAuth.Authenticate(r)
-     if err != nil { fail(w,401,err); return }
-     if principal.MustChange { fail(w,403,fmt.Errorf("请先修改临时密码")); return }
-    } else {
-				 got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-				 if subtle.ConstantTimeCompare([]byte(got), token) != 1 { fail(w, 401, fmt.Errorf("invalid management token")); return }
-    }
+				if !auth.CheckOrigin(r) {
+					fail(w, 403, fmt.Errorf("跨站请求被拒绝"))
+					return
+				}
+				if *authMode == "local" {
+					principal, err := identityProvider.Authenticate(r)
+					if err != nil {
+						fail(w, 401, err)
+						return
+					}
+					if principal.MustChange {
+						fail(w, 403, fmt.Errorf("请先修改临时密码"))
+						return
+					}
+				} else {
+					got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+					if subtle.ConstantTimeCompare([]byte(got), token) != 1 {
+						fail(w, 401, fmt.Errorf("invalid management token"))
+						return
+					}
+				}
 				next.ServeHTTP(w, r)
 			})
 		})
-  r.Handle("/panel",http.HandlerFunc(panelService.Handler))
-  r.Handle("/panel/*",http.HandlerFunc(panelService.Handler))
+		r.Handle("/panel", http.HandlerFunc(panelService.Handler))
+		r.Handle("/panel/*", http.HandlerFunc(panelService.Handler))
 		ddnsRouter := ddnsService.Router()
 		r.Mount("/dns", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			configMu.Lock()
@@ -248,7 +279,10 @@ func run() error {
 				fail(w, 400, e)
 				return
 			}
-   if e := panelService.ValidateConfig(c); e != nil { fail(w,400,e); return }
+			if e := panelService.ValidateConfig(c); e != nil {
+				fail(w, 400, e)
+				return
+			}
 			if e := ddnsService.ValidateCertificates(c); e != nil {
 				fail(w, 400, e)
 				return
@@ -335,7 +369,9 @@ func run() error {
 
 	})
 	static := frontend.Handler()
- if *web != "" { static = http.FileServer(http.Dir(*web)) }
+	if *web != "" {
+		static = http.FileServer(http.Dir(*web))
+	}
 	r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			http.NotFound(w, r)
@@ -360,8 +396,12 @@ func run() error {
 	go func() { defer close(certDone); certService.Run(ctx) }()
 	ddnsDone := make(chan struct{})
 	go func() { defer close(ddnsDone); ddnsService.Run(ctx) }()
- if *authMode == "local" { if ready,_ := localAuth.Initialized(); !ready { log.Printf("管理员尚未初始化，请执行 netlite info --data %s 获取初始化码",*data) } }
-	log.Printf("NetLite listening on %s; management token is in %s", *listen, tokenPath)
+	if *authMode == "local" {
+		if ready, _ := localAuth.Initialized(); !ready {
+			log.Printf("管理员尚未初始化，请执行 netlite info --data %s 获取初始化码", *data)
+		}
+	}
+	log.Printf("NetLite listening on %s; authentication mode: %s; private data: %s", *listen, *authMode, *data)
 	<-ctx.Done()
 	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()

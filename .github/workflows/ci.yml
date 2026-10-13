@@ -24,8 +24,8 @@ jobs:
       - name: Prepare dependencies and formatting
         run: |
           go mod tidy
-          gofmt -w cmd internal
-          git diff -- go.mod go.sum cmd internal > /tmp/netlite-format.patch
+          gofmt -w cmd internal web/*.go
+          git diff -- go.mod go.sum cmd internal web/*.go > /tmp/netlite-format.patch
           cat /tmp/netlite-format.patch
       - name: Build standard Caddy
         run: |
@@ -65,7 +65,7 @@ jobs:
           path: /tmp/netlite-format.patch
           retention-days: 1
       - name: Enforce checked-in dependencies and formatting
-        run: git diff --exit-code -- go.mod go.sum cmd internal
+        run: git diff --exit-code -- go.mod go.sum cmd internal web/*.go
       - name: Share verified frontend with deployment builds
         uses: actions/upload-artifact@v4
         with:

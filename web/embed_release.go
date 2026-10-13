@@ -12,6 +12,8 @@ var release embed.FS
 
 func init() {
 	var err error
-	FS,err = fs.Sub(release,"dist")
-	if err != nil { panic(err) }
+	FS, err = fs.Sub(release, "dist")
+	if err != nil {
+		panic(err)
+	}
 }
