@@ -12,7 +12,7 @@ const selected=computed(()=>tasks.value.find(t=>t.id===detailID.value))
 const attention=computed(()=>tasks.value.filter(t=>t.enabled&&['failed','ip_failed','invalid_domain'].some(x=>[t.state?.ipv4_result,t.state?.ipv6_result].includes(x))).length)
 const account=ref<Account>(freshAccount()),task=ref<Task>(freshTask()),v4=ref(''),v6=ref(''),family=ref('A')
 const providers=[['dnspod','DNSPod.cn（ID / Token）'],['tencentcloud','腾讯云 DNSPod'],['cloudflare','Cloudflare'],['alidns','阿里云 DNS']]
-function uid(){return crypto.randomUUID().replaceAll('-','')}
+function uid(){return Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('')}
 function freshAccount():Account{return {id:uid(),name:'',provider:'dnspod',credential_id:'',secret:''}}
 function freshTask():Task{return {id:uid(),name:'',account_id:'',ipv4_domains:[],ipv6_domains:[],ipv4_url:'https://api4.ipify.org',ipv6_url:'https://api6.ipify.org',interval_seconds:300,ttl:'600',enabled:false}}
 function date(value?:string){return !value||value.startsWith('0001-')?'—':new Date(value).toLocaleString()}
