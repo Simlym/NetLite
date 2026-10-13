@@ -25,16 +25,20 @@ else
  printf '\n'
  [[ "$password" == "$repeated" ]] || { echo '两次密码不一致' >&2; exit 1; }
 fi
-[[ ${#password} -ge 12 && ${#password} -le 72 ]] || { echo '密码长度须为 12–72 字节' >&2; exit 1; }
+password_bytes=$(printf '%s' "$password" | wc -c)
+[[ "$password_bytes" -ge 12 && "$password_bytes" -le 72 ]] || { echo '密码长度须为 12–72 字节' >&2; exit 1; }
 getent group netlite >/dev/null || groupadd --system netlite
 id netlite >/dev/null 2>&1 || useradd --system --gid netlite --home-dir /var/lib/netlite --shell /usr/sbin/nologin netlite
 install -d -m 755 /opt/netlite /opt/netlite/bin /etc/netlite
 install -d -o netlite -g netlite -m 700 /var/lib/netlite
-install -m 755 "$bundle/bin/netlite" /opt/netlite/bin/netlite
-install -m 755 "$bundle/bin/caddy" /opt/netlite/bin/caddy
 args=(init-admin --data /var/lib/netlite --username "$username")
 [[ "$temporary" == false ]] || args+=(--temporary)
-printf '%s\n' "$password" | runuser -u netlite -- /opt/netlite/bin/netlite "${args[@]}"
+printf '%s\n' "$password" | "$bundle/bin/netlite" "${args[@]}"
+for database_file in /var/lib/netlite/netlite.db /var/lib/netlite/netlite.db-wal /var/lib/netlite/netlite.db-shm; do
+ [[ ! -e "$database_file" ]] || chown netlite:netlite "$database_file"
+done
+install -m 755 "$bundle/bin/netlite" /opt/netlite/bin/netlite
+install -m 755 "$bundle/bin/caddy" /opt/netlite/bin/caddy
 printf 'NETLITE_LISTEN=%s\n' "$listen" > /etc/netlite/netlite.env
 chmod 644 /etc/netlite/netlite.env
 install -m 644 "$bundle/deploy/netlite.service" /etc/systemd/system/netlite.service
