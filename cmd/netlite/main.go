@@ -159,15 +159,13 @@ func run() error {
 	}
 	defer panelService.Close()
 	certService.Reload = func(check context.Context) error {
-		if err := panelService.Reload(check); err != nil {
-			return err
-		}
+		panelErr := panelService.Reload(check)
 		if *noCaddy {
-			return nil
+			return panelErr
 		}
 		configMu.Lock()
 		defer configMu.Unlock()
-		return adapter.ReloadCertificates(check)
+		return errors.Join(panelErr, adapter.ReloadCertificates(check))
 	}
 	ddnsService.AppliedAccountReference = func(id string) bool {
 		if certService.AccountReferenced(id) {

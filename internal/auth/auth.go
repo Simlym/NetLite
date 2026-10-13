@@ -25,6 +25,7 @@ type Principal struct {
 	Name       string `json:"username"`
 	MustChange bool   `json:"must_change_password"`
 	CSRF       string `json:"csrf_token,omitempty"`
+	password   []byte
 }
 
 // Provider is the integration seam for fnOS. No gateway headers are trusted by
@@ -121,6 +122,7 @@ func (m *Manager) Check(name, password string) (Principal, error) {
 	if err != nil || p.Name != name || bcrypt.CompareHashAndPassword(hash, []byte(password)) != nil {
 		return p, fmt.Errorf("用户名或密码错误")
 	}
+	p.password = hash
 	return p, nil
 }
 func (m *Manager) Authenticate(r *http.Request) (Principal, error) {
@@ -140,7 +142,7 @@ func (m *Manager) Authenticate(r *http.Request) (Principal, error) {
 	_, err = m.DB.Exec("UPDATE auth_session SET idle_until=MIN(expires,?+lifetime) WHERE id=?", now, digest(cookie.Value))
 	return p, err
 }
-func (m *Manager) session(w http.ResponseWriter, r *http.Request, remember bool) error {
+func (m *Manager) session(w http.ResponseWriter, r *http.Request, remember bool, password []byte) error {
 	id, err := Random()
 	if err != nil {
 		return err
@@ -160,9 +162,17 @@ func (m *Manager) session(w http.ResponseWriter, r *http.Request, remember bool)
 	if err != nil {
 		return err
 	}
-	_, err = m.DB.Exec("INSERT INTO auth_session VALUES(?,?,?,?,?)", digest(id), csrf, now+30*24*3600, now+idle, idle)
+	// A password reset racing a login must not issue a fresh session for the old password.
+	res, err := m.DB.Exec("INSERT INTO auth_session SELECT ?,?,?,?,? FROM admin_account WHERE id=1 AND password=?", digest(id), csrf, now+30*24*3600, now+idle, idle, password)
 	if err != nil {
 		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("密码已修改，请重新登录")
 	}
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: id, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: age})
 	return nil
@@ -269,11 +279,13 @@ func (m *Manager) Handler(w http.ResponseWriter, r *http.Request) {
 				fail(w, 400, fmt.Errorf("无法初始化管理员：%v", err))
 				return
 			}
-		} else if _, err := m.Check(req.Username, req.Password); err != nil {
+		}
+		principal, err := m.Check(req.Username, req.Password)
+		if err != nil {
 			fail(w, 401, err)
 			return
 		}
-		if err := m.session(w, r, req.Remember); err != nil {
+		if err := m.session(w, r, req.Remember, principal.password); err != nil {
 			fail(w, 500, fmt.Errorf("无法创建会话"))
 			return
 		}
@@ -321,7 +333,12 @@ func (m *Manager) Handler(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, err)
 			return
 		}
-		if err := m.session(w, r, false); err != nil {
+		principal, err := m.Check(p.Name, req.New)
+		if err != nil {
+			fail(w, 401, err)
+			return
+		}
+		if err := m.session(w, r, false, principal.password); err != nil {
 			fail(w, 500, fmt.Errorf("请使用新密码重新登录"))
 			return
 		}

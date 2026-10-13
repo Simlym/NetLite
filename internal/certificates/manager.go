@@ -303,7 +303,7 @@ func (m *Manager) execute(c model.Certificate) {
 		err = m.Reload(reloadCtx)
 		stop()
 		if err != nil {
-			r.State.ReloadError = "证书已更新，代理重载失败，将自动重试"
+			r.State.ReloadError = "证书已更新，服务证书加载失败，将自动重试"
 			_ = m.save(r)
 		}
 	}

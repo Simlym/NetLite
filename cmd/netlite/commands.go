@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"netlite/internal/auth"
 	"netlite/internal/store"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 func command(args []string) error {
 	f := flag.NewFlagSet(args[0], flag.ContinueOnError)
+	listen := f.String("listen", "", "management address for info")
 	data := f.String("data", "/var/lib/netlite", "private data directory")
 	name := f.String("username", "admin", "administrator username")
 	temporary := f.Bool("temporary", false, "require password change after login")
@@ -81,7 +83,33 @@ func command(args []string) error {
 				fmt.Printf("面板 HTTPS：%t；域名：%s\n", setting.Enabled, setting.Domain)
 			}
 		}
-		fmt.Println("监听地址：请查看安装完成提示或 /etc/netlite/netlite.env")
+		address := *listen
+		if address == "" {
+			if env, err := os.ReadFile("/etc/netlite/netlite.env"); err == nil {
+				for _, line := range strings.Split(string(env), "\n") {
+					if strings.HasPrefix(line, "NETLITE_LISTEN=") {
+						address = strings.TrimPrefix(line, "NETLITE_LISTEN=")
+					}
+				}
+			}
+		}
+		if address == "" {
+			address = "127.0.0.1:18780"
+		}
+		fmt.Println("监听地址：", address)
+		if host, port, err := net.SplitHostPort(address); err == nil {
+			var setting struct {
+				Enabled bool   `json:"enabled"`
+				Domain  string `json:"domain"`
+			}
+			if json.Unmarshal([]byte(body), &setting) == nil && setting.Enabled {
+				fmt.Println("访问地址：https://" + net.JoinHostPort(setting.Domain, port))
+			} else if host == "0.0.0.0" || host == "::" {
+				fmt.Println("访问地址：http://<服务器 IP>:" + port)
+			} else {
+				fmt.Println("访问地址：http://" + address)
+			}
+		}
 	case "reset-https":
 		_, err := s.DB.Exec("UPDATE panel_settings SET body='{}' WHERE id=1")
 		if err != nil {

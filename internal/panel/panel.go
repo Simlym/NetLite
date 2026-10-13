@@ -141,6 +141,9 @@ func (m *Manager) persist(s Settings) error {
 	return err
 }
 func (m *Manager) rollback() {
+	if m.pending == nil {
+		return
+	}
 	m.pending = nil
 	if !m.settings.Enabled {
 		m.cert.Store(nil)

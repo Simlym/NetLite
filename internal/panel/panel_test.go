@@ -37,6 +37,12 @@ func testPanel(t *testing.T) (*Manager, model.Config) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	m, err := Open(db, certs, 18780)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Close)
+	certs.Reload = m.Reload
 	go func() { defer close(done); certs.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
 	if err = certs.Request(c, false); err != nil {
@@ -52,11 +58,6 @@ func testPanel(t *testing.T) (*Manager, model.Config) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	m, err := Open(db, certs, 18780)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(m.Close)
 	return m, cfg
 }
 func panelRequest(m *Manager, path, method string, body any, secure bool) *httptest.ResponseRecorder {
@@ -158,4 +159,57 @@ func TestSharedPortTLSAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	res.Body.Close()
+}
+
+func TestAutomaticRollbackAndRenewal(t *testing.T) {
+	m, cfg := testPanel(t)
+	req := map[string]any{"enabled": true, "domain": "localhost", "certificate_id": "local", "redirect": true}
+	if w := panelRequest(m, "/api/panel", "PUT", req, false); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	m.mu.Lock()
+	m.timer.Reset(20 * time.Millisecond)
+	m.mu.Unlock()
+	deadline := time.Now().Add(time.Second)
+	for {
+		m.mu.Lock()
+		pending := m.pending != nil
+		m.mu.Unlock()
+		if !pending {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("unconfirmed HTTPS did not roll back")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if m.cert.Load() != nil {
+		t.Fatal("rollback kept test TLS")
+	}
+	if w := panelRequest(m, "/api/panel", "PUT", req, false); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w := panelRequest(m, "/api/panel/confirm", "POST", nil, true); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	first := m.cert.Load()
+	if w := panelRequest(m, "/api/panel/cancel", "POST", nil, true); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if m.cert.Load() != first {
+		t.Fatal("cancel without pending switch damaged confirmed TLS")
+	}
+	if err := m.Certificates.Request(cfg.Certificates[0], true); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for m.cert.Load() == first {
+		if time.Now().After(deadline) {
+			t.Fatal("renewed certificate was not hot loaded")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if m.cert.Load().Leaf.SerialNumber.Cmp(first.Leaf.SerialNumber) == 0 {
+		t.Fatal("renewal did not replace certificate")
+	}
 }

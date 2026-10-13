@@ -132,3 +132,25 @@ func TestCrossSiteRateLimitAndExpiry(t *testing.T) {
 		t.Fatal("login attempts not limited", w.Code)
 	}
 }
+
+func TestPasswordResetRacingLoginCannotCreateOldSession(t *testing.T) {
+	m := testAuth(t)
+	if err := m.Create("admin", "original long password", false); err != nil {
+		t.Fatal(err)
+	}
+	principal, err := m.Check("admin", "original long password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.Reset("replacement long password", false); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "http://localhost/api/auth/login", nil)
+	if err = m.session(w, r, false, principal.password); err == nil {
+		t.Fatal("old password created a session after reset")
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatal("failed login issued a cookie")
+	}
+}
