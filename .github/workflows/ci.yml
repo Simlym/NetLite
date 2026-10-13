@@ -54,9 +54,10 @@ jobs:
           npm run build
       - name: Linux panel authentication and embedded HTTPS
         run: |
+          go test -tags webembed ./cmd/netlite
           CGO_ENABLED=0 go build -tags webembed -o bin/netlite ./cmd/netlite
           python3 scripts/smoke-panel.py
-          bash -n scripts/install-linux.sh scripts/build-linux.sh
+          for script in scripts/install-linux.sh scripts/build-linux.sh packaging/fnos/netlite/cmd/*; do bash -n "$script"; done
       - name: Upload formatting diagnostics
         if: always()
         uses: actions/upload-artifact@v4

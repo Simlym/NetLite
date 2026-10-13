@@ -4,6 +4,25 @@ umask 077
 : "${TRIM_APPDEST:?}" "${TRIM_PKGVAR:?}" "${TRIM_PKGETC:?}"
 PID_FILE="$TRIM_PKGVAR/netlite.pid"
 BIN="$TRIM_APPDEST/bin/netlite"
+SOCKET="$TRIM_APPDEST/netlite.sock"
+# Default access is restricted to the package user and root. If the fnOS
+# gateway uses another identity, explicitly grant only its verified group.
+SOCKET_MODE=0600
+SOCKET_GROUP=-1
+configure_socket() {
+if [ -f "$TRIM_PKGETC/gateway-socket.conf" ]; then
+ while IFS='=' read -r key value; do
+  case "$key" in
+   mode) SOCKET_MODE="$value" ;;
+   group) SOCKET_GROUP="$value" ;;
+   ''|'#'*) ;;
+   *) echo 'Invalid gateway-socket.conf key.' >&2; exit 1 ;;
+  esac
+ done < "$TRIM_PKGETC/gateway-socket.conf"
+fi
+case "$SOCKET_MODE" in 0600|0660) ;; *) echo 'Socket mode must be 0600 or 0660.' >&2; exit 1 ;; esac
+[[ "$SOCKET_GROUP" == -1 || "$SOCKET_GROUP" =~ ^[0-9]+$ ]] || exit 1
+}
 running() {
  [ -f "$PID_FILE" ] || return 1
  pid=$(cat "$PID_FILE")
@@ -11,18 +30,14 @@ running() {
  [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = "$BIN" ] && kill -0 "$pid" 2>/dev/null
 }
 health() {
- (
-  exec 3<>/dev/tcp/127.0.0.1/18780 || exit 1
-  printf 'GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3
-  IFS= read -r -t 1 response <&3
-  [[ "$response" == *" 200 "* ]]
- ) 2>/dev/null
+ "$BIN" gateway-health --gateway-socket "$SOCKET" >/dev/null 2>&1
 }
 case "${1:-}" in
  start)
   running && exit 0
+  configure_socket
   mkdir -p "$TRIM_PKGVAR" "$TRIM_PKGETC"
-  nohup "$BIN" --auth-mode token --listen 0.0.0.0:18780 --data "$TRIM_PKGVAR" --web "$TRIM_APPDEST/web" --caddy "$TRIM_APPDEST/bin/caddy" --caddy-admin 127.0.0.1:20190 >> "$TRIM_PKGVAR/netlite.log" 2>&1 < /dev/null &
+  nohup "$BIN" --auth-mode fnos-gateway --gateway-socket "$SOCKET" --gateway-socket-mode "$SOCKET_MODE" --gateway-socket-group "$SOCKET_GROUP" --data "$TRIM_PKGVAR" --web "$TRIM_APPDEST/web" --caddy "$TRIM_APPDEST/bin/caddy" --caddy-admin 127.0.0.1:20190 >> "$TRIM_PKGVAR/netlite.log" 2>&1 < /dev/null &
   echo "$!" > "$PID_FILE"
   for i in {1..10}; do
    sleep 1

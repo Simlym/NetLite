@@ -23,13 +23,16 @@ const CookieName = "netlite-session"
 
 type Principal struct {
 	Name       string `json:"username"`
+	UID        string `json:"uid,omitempty"`
+	IsAdmin    bool   `json:"is_admin"`
+	Source     string `json:"source,omitempty"`
 	MustChange bool   `json:"must_change_password"`
 	CSRF       string `json:"csrf_token,omitempty"`
 	password   []byte
 }
 
-// Provider is the integration seam for fnOS. No gateway headers are trusted by
-// the local provider; a future gateway provider must use a private listener.
+// Provider separates local and fnOS identity. The local provider ignores
+// gateway headers; Gateway accepts identity only on a private Unix listener.
 type Provider interface {
 	Authenticate(*http.Request) (Principal, error)
 }
@@ -116,7 +119,7 @@ func (m *Manager) Reset(password string, temporary bool) error {
 	return tx.Commit()
 }
 func (m *Manager) Check(name, password string) (Principal, error) {
-	var p Principal
+	p := Principal{IsAdmin: true, Source: "local"}
 	var hash []byte
 	err := m.DB.QueryRow("SELECT name,password,must_change FROM admin_account WHERE id=1").Scan(&p.Name, &hash, &p.MustChange)
 	if err != nil || p.Name != name || bcrypt.CompareHashAndPassword(hash, []byte(password)) != nil {
@@ -126,7 +129,7 @@ func (m *Manager) Check(name, password string) (Principal, error) {
 	return p, nil
 }
 func (m *Manager) Authenticate(r *http.Request) (Principal, error) {
-	var p Principal
+	p := Principal{IsAdmin: true, Source: "local"}
 	cookie, err := r.Cookie(CookieName)
 	if err != nil {
 		return p, fmt.Errorf("请登录")

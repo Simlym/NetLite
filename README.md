@@ -92,7 +92,7 @@ HTTP-01 使用 NetLite 专用验证端口，默认 18082，公网 TCP 80 必须�
 ```
 
 安装包仅包含 NetLite、标准 Caddy、预构建前端与许可说明。Windows fnpack 生成的可执行权限由 normalize-fpk.py 修正并核验 app.tgz 校验和。
-启动脚本以 package 用户运行，使用应用私有数据目录；管理员读取 /var/apps/netlite/var/admin-token 登录。
+启动脚本以 package 用户运行，使用应用私有数据目录。管理面板通过飞牛统一网关 `/app/netlite/` 访问，复用飞牛管理员登录态，不再要求独立管理令牌，也不监听管理 TCP 端口。目标 fnOS 必须支持统一网关；Socket 权限及实机验收见 [飞牛认证接入](docs/FNOS-AUTH.md)。
 FPK 构建与 CI 不能代替 fnOS 实机安装、升级和权限验证。
 
 ## 验证

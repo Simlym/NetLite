@@ -4,6 +4,8 @@
 
 # fnOS 官方规范核验
 
+当前 FPK 已改为统一网关和飞牛管理员认证，不再使用下面历史记录中的管理 TCP 端口或管理令牌。现行入口、Socket 权限及实机验收见 [FNOS-AUTH.md](FNOS-AUTH.md)。
+
 核验日期：2026-10-11（Asia/Shanghai）。直接通过 HTTPS 读取 developer.fnnas.com 的官方 HTML，不以第三方文章代替契约。
 
 ## 工具

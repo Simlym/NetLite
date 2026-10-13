@@ -5,7 +5,13 @@
 
 # API
 
-全部 /api 请求需要 Authorization: Bearer <admin-token>。/healthz 不需要鉴权，仅表示后端 HTTP 服务存活。
+独立部署的 API 位于 `/api`；飞牛统一网关部署位于 `/app/netlite/api`。
+
+- `local`：本地管理员账号和 Cookie 会话；写操作需要 `me` 返回的 `X-CSRF-Token`。
+- `token`：显式兼容模式，需要 `Authorization: Bearer <admin-token>`。
+- `fnos-gateway`：仅 Linux Unix Socket；飞牛网关传递的管理员身份鉴权，写操作仍需要 `X-CSRF-Token`。`GET /auth/state` 返回模式，`GET /auth/me` 返回 username/uid/is_admin/source/csrf_token，不提供本地 setup/login/password/logout。独立面板 HTTPS 设置接口返回 403。
+
+`/healthz` 仅表示服务存活。飞牛模式的未鉴权健康检查只在本地 Socket 的 `/healthz` 提供，不属于公开网关前缀。接入与权限边界见 [FNOS-AUTH.md](FNOS-AUTH.md)。
 
 ## 代理业务配置
 

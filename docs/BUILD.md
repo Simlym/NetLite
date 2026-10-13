@@ -18,7 +18,7 @@ Go 测试、race 检查、vet、前端测试与构建、Linux / Windows 代理 s
 
 也可单独下载 `netlite-linux-amd64` / `netlite-linux-arm64` / `netlite-fnos-amd64` / `netlite-fnos-arm64`。部署包保留 14 天，前端中间产物 `netlite-web` 保留 7 天，长期保存请下载或手动上传至 Release。
 
-在四个产物所在目录运行 `sha256sum --check SHA256SUMS` 校验。版本统一读取 `packaging/fnos/netlite/manifest` 的 `version`；发布标签必须严格对应，例如 manifest 为 `0.1.4` 时使用 `v0.1.4`。更新版本只需修改 manifest。
+在四个产物所在目录运行 `sha256sum --check SHA256SUMS` 校验。版本统一读取 `packaging/fnos/netlite/manifest` 的 `version`；发布标签必须严格对应，例如 manifest 为 `0.1.5` 时使用 `v0.1.5`。更新版本只需修改 manifest。
 
 Linux 包含 `bin/netlite`、标准 `bin/caddy`、`web/` 静态前端（同时内嵌在程序内）、`install.sh`、`deploy/netlite.service`、许可说明和 `BUILD-INFO`（版本、架构、源码提交）。飞牛包复用同架构 Linux 包中的二进制和前端，并调用 `scripts/build-fpk.ps1`；固定官方 fnpack 1.2.3，下载后校验 SHA-256，打包后自动修正 Unix 权限并回读核验 `app.tgz` checksum。
 
@@ -37,7 +37,7 @@ umask 077
 
 ## 飞牛安装
 
-在 fnOS 应用中心手动安装与设备架构对应的 `.fpk`。服务以独立 package 用户运行，管理员读取 `/var/apps/netlite/var/admin-token` 登录。不修改或停止 fnOS 系统 Web 服务。
+在 fnOS 应用中心手动安装与设备架构对应的 `.fpk`。服务以独立 package 用户运行，使用统一网关 `/app/netlite/` 复用飞牛管理员登录态；不开放管理 TCP 端口。目标系统须支持统一网关，Socket 权限与验收见 [飞牛认证接入](FNOS-AUTH.md)。不修改或停止 fnOS 系统 Web 服务。
 
 CI 中 amd64 Linux 包执行实际二进制 smoke；ARM64 为交叉构建和包结构检查，未执行 ARM64 原生运行验证。FPK 的打包校验不代表 fnOS 实机安装、升级、卸载和权限验证通过；没有设备及真实 DNS 凭据时，这些实机与公网 ACME / DNS 验证未执行。
 

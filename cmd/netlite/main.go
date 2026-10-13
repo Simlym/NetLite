@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,11 @@ func fail(w http.ResponseWriter, status int, e error) {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "gateway-health":
+			if err := gatewayHealth(os.Args[2:]); err != nil {
+				log.Fatal(err)
+			}
+			return
 		case "init-admin", "reset-password", "reset-https", "info":
 			if err := command(os.Args[1:]); err != nil {
 				log.Fatal(err)
@@ -61,15 +67,25 @@ func run() error {
 	listen := flag.String("listen", "127.0.0.1:18780", "management address")
 	data := flag.String("data", "data", "private persistent directory")
 	web := flag.String("web", "", "development frontend directory; releases embed the frontend")
-	authMode := flag.String("auth-mode", "local", "local or token; fnos-gateway is reserved and fails closed")
+	authMode := flag.String("auth-mode", "local", "local, token, or fnos-gateway")
+	gatewaySocket := flag.String("gateway-socket", "", "fnOS gateway Unix Socket (absolute path in TRIM_APPDEST)")
+	gatewayMode := flag.String("gateway-socket-mode", "0600", "gateway Socket permissions: 0600 or 0660")
+	gatewayGroup := flag.Int("gateway-socket-group", -1, "optional gateway Socket group ID (must be a group available to the package user)")
 	binary := flag.String("caddy", "caddy", "independent Caddy executable")
 	admin := flag.String("caddy-admin", "127.0.0.1:20190", "private Caddy admin")
 	httpChallenge := flag.String("acme-http-listen", "0.0.0.0:18082", "HTTP-01 validation listener (public TCP 80 must reach it)")
 	proxyKind := flag.String("proxy-engine", "caddy", "proxy engine; currently caddy")
 	noCaddy := flag.Bool("no-caddy", false, "development only: CRUD without engine")
 	flag.Parse()
-	if *authMode != "local" && *authMode != "token" {
+	if *authMode != "local" && *authMode != "token" && *authMode != "fnos-gateway" {
 		return fmt.Errorf("authentication mode unavailable: %s", *authMode)
+	}
+	isGateway := *authMode == "fnos-gateway"
+	if isGateway && (runtime.GOOS != "linux" || *gatewaySocket == "") {
+		return fmt.Errorf("fnos-gateway requires Linux and --gateway-socket")
+	}
+	if !isGateway && *gatewaySocket != "" {
+		return fmt.Errorf("--gateway-socket requires fnos-gateway authentication")
 	}
 	if *proxyKind != "caddy" {
 		return fmt.Errorf("unsupported proxy engine; currently caddy is available")
@@ -102,6 +118,9 @@ func run() error {
 	if managePort == adminPort || challengePort == managePort || challengePort == adminPort {
 		return fmt.Errorf("management and admin ports must differ")
 	}
+	if isGateway {
+		managePort = 0 // This mode has no management TCP listener.
+	}
 	abs, e := filepath.Abs(*data)
 	if e != nil {
 		return e
@@ -110,33 +129,44 @@ func run() error {
 	if e = os.MkdirAll(*data, 0700); e != nil {
 		return e
 	}
-	tokenPath := filepath.Join(*data, "admin-token")
-	token, e := os.ReadFile(tokenPath)
-	if os.IsNotExist(e) {
-		b := make([]byte, 32)
-		if _, e = rand.Read(b); e != nil {
+	var token []byte
+	if !isGateway {
+		tokenPath := filepath.Join(*data, "admin-token")
+		token, e = os.ReadFile(tokenPath)
+		if os.IsNotExist(e) {
+			b := make([]byte, 32)
+			if _, e = rand.Read(b); e != nil {
+				return e
+			}
+			token = []byte(hex.EncodeToString(b))
+			e = os.WriteFile(tokenPath, token, 0600)
+		}
+		if e != nil {
 			return e
 		}
-		token = []byte(hex.EncodeToString(b))
-		e = os.WriteFile(tokenPath, token, 0600)
-	}
-	if e != nil {
-		return e
-	}
-	token = []byte(strings.TrimSpace(string(token)))
-	if len(token) < 32 {
-		return fmt.Errorf("admin-token must have at least 32 characters")
+		token = []byte(strings.TrimSpace(string(token)))
+		if len(token) < 32 {
+			return fmt.Errorf("admin-token must have at least 32 characters")
+		}
 	}
 	s, e := store.Open(filepath.Join(*data, "netlite.db"))
 	if e != nil {
 		return e
 	}
 	defer s.DB.Close()
-	localAuth, e := auth.Open(s.DB, string(token))
+	var localAuth *auth.Manager
+	var gatewayAuth *auth.Gateway
+	var identityProvider auth.Provider
+	if isGateway {
+		gatewayAuth, e = auth.NewGateway()
+		identityProvider = gatewayAuth
+	} else {
+		localAuth, e = auth.Open(s.DB, string(token))
+		identityProvider = localAuth
+	}
 	if e != nil {
 		return e
 	}
-	var identityProvider auth.Provider = localAuth
 	engine := proxy.New(*binary, *data, *admin)
 	var adapter proxy.ProxyEngine = engine
 	var configMu sync.Mutex
@@ -153,9 +183,13 @@ func run() error {
 	certService.ResolveAccount = ddnsService.ResolveAccount
 	engine.ResolveCertificate = certService.Files
 	certService.Applied = adapter.Applied
-	panelService, e := panel.Open(s, certService, managePort)
-	if e != nil {
-		return e
+	// Platform mode must not load or enforce a previous standalone TLS setting.
+	panelService := &panel.Manager{DB: s, Certificates: certService, Port: managePort}
+	if !isGateway {
+		panelService, e = panel.Open(s, certService, managePort)
+		if e != nil {
+			return e
+		}
 	}
 	defer panelService.Close()
 	certService.Reload = func(check context.Context) error {
@@ -207,6 +241,8 @@ func run() error {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
 	if *authMode == "local" {
 		r.Handle("/api/auth/*", http.HandlerFunc(localAuth.Handler))
+	} else if isGateway {
+		r.Handle("/api/auth/*", http.HandlerFunc(gatewayAuth.Handler))
 	} else {
 		r.Get("/api/auth/state", func(w http.ResponseWriter, r *http.Request) {
 			respond(w, 200, map[string]any{"mode": "token", "initialized": true})
@@ -219,7 +255,7 @@ func run() error {
 					fail(w, 403, fmt.Errorf("跨站请求被拒绝"))
 					return
 				}
-				if *authMode == "local" {
+				if *authMode != "token" {
 					principal, err := identityProvider.Authenticate(r)
 					if err != nil {
 						fail(w, 401, err)
@@ -240,6 +276,10 @@ func run() error {
 			})
 		})
 		panelHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if isGateway {
+				fail(w, http.StatusForbidden, fmt.Errorf("面板登录和 HTTPS 由飞牛管理"))
+				return
+			}
 			configMu.Lock()
 			defer configMu.Unlock()
 			panelService.Handler(w, req)
@@ -382,15 +422,40 @@ func run() error {
 		}
 		static.ServeHTTP(w, r)
 	}))
-	listener, e := net.Listen("tcp", *listen)
+	var listener net.Listener
+	var handler http.Handler = panelService.Wrap(r)
+	if isGateway {
+		mode, err := strconv.ParseUint(*gatewayMode, 8, 32)
+		if err != nil {
+			e = fmt.Errorf("invalid gateway Socket permissions")
+		} else {
+			listener, e = listenGateway(*gatewaySocket, os.FileMode(mode), *gatewayGroup)
+		}
+		// Health is local Socket-only, has no credentials or application data,
+		// and is intentionally outside the public /app/netlite route.
+		app := gatewayAuth.RequireAdmin(gatewayRoutes(r))
+		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/healthz" && req.Method == "GET" {
+				respond(w, 200, map[string]string{"status": "ok"})
+				return
+			}
+			app.ServeHTTP(w, req)
+		})
+	} else {
+		listener, e = net.Listen("tcp", *listen)
+	}
 	if e != nil {
 		cancel()
 		<-engineDone
 		return e
 	}
-	srv := &http.Server{Handler: panelService.Wrap(r), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
+	defer listener.Close()
+	if !isGateway {
+		listener = panelService.Listener(listener)
+	}
+	srv := &http.Server{Handler: handler, ConnContext: auth.GatewayConnContext, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
-		if e := srv.Serve(panelService.Listener(listener)); e != nil && e != http.ErrServerClosed {
+		if e := srv.Serve(listener); e != nil && e != http.ErrServerClosed {
 			errCh <- e
 			cancel()
 		}
@@ -404,7 +469,11 @@ func run() error {
 			log.Printf("管理员尚未初始化，请执行 netlite info --data %s 获取初始化码", *data)
 		}
 	}
-	log.Printf("NetLite listening on %s; authentication mode: %s; private data: %s", *listen, *authMode, *data)
+	address := *listen
+	if isGateway {
+		address = *gatewaySocket
+	}
+	log.Printf("NetLite listening on %s; authentication mode: %s; private data: %s", address, *authMode, *data)
 	<-ctx.Done()
 	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()
