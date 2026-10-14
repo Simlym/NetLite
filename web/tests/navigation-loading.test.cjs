@@ -31,6 +31,37 @@ function script(name,props,expose,extras={}){
 function app(fetch){return script('App.vue',{},'navigate,loadPage,pageLoading,pageError,pageLoaded,config,status,tab,api',{fetch})}
 function json(body){return new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json'}})}
 
+test('adding a route selects the first issued valid certificate and editing preserves the existing selection',async()=>{
+  const x=script('App.vue',{},'add,editRoute,config,route,tab',{
+    fetch:async url=>{
+      assert.equal(url,'/api/certificates/')
+      return json({certificates:{expired:{status:'expired',last_issued:'2020-01-01T00:00:00Z',not_after:'2020-02-01T00:00:00Z'},valid:{status:'ready',last_issued:'2026-01-01T00:00:00Z',not_after:'2099-01-01T00:00:00Z'}}})
+    }
+  })
+  x.state.config.value.certificates=[{id:'expired',domains:['old.example.com']},{id:'valid',domains:['app.example.com']}]
+  await x.state.add()
+  assert.equal(x.state.route.value.scheme,'https')
+  assert.equal(x.state.route.value.certificate_id,'valid')
+  assert.equal(x.state.route.value.domain,'app.example.com')
+  x.state.editRoute({id:'existing',scheme:'http',domain:'old.example.com',certificate_id:'expired',upstream:'http://localhost:8080'})
+  assert.equal(x.state.route.value.scheme,'http')
+  assert.equal(x.state.route.value.certificate_id,'expired')
+})
+
+test('wildcard defaults leave the subdomain prefix blank and no certificate means no status request',async()=>{
+  let calls=0
+  const x=script('App.vue',{},'add,config,route',{
+    fetch:async()=>{calls++;return json({certificates:{wild:{status:'ready',last_issued:'2026-01-01T00:00:00Z',not_after:'2099-01-01T00:00:00Z'}}})}
+  })
+  await x.state.add()
+  assert.equal(calls,0)
+  assert.equal(x.state.route.value.certificate_id,'')
+  x.state.config.value.certificates=[{id:'wild',domains:['*.example.com','example.com']}]
+  await x.state.add()
+  assert.equal(x.state.route.value.certificate_id,'wild')
+  assert.equal(x.state.route.value.domain,'')
+})
+
 test('proxy navigation refreshes data and reuses fresh cache on repeated visits',async()=>{
   const calls=[]
   const pending=deferred()

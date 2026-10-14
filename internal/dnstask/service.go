@@ -378,11 +378,7 @@ func (s *Service) Router() http.Handler {
 			t.IPv6Domains[i] = strings.ToLower(t.IPv6Domains[i])
 		}
 		if len(t.Name) > 500 {
-			serviceError(w, 400, "任务名称、域名数量或 TTL 不正确")
-			return
-		}
-		if t.Name == "" {
-			serviceError(w, 400, "请填写任务名称")
+			serviceError(w, 400, "任务名称不能超过 500 字节")
 			return
 		}
 		task, e := s.renderTask(t)

@@ -112,6 +112,7 @@ func (c Config) Validate(reserved ...int) error {
 	}
 	ports := map[int]string{}
 	routes := map[string]bool{}
+	var certificateErrors []string
 	for _, r := range c.Routes {
 		if !ident.MatchString(r.ID) || seen["r"+r.ID] {
 			return fmt.Errorf("invalid/duplicate route id")
@@ -139,7 +140,23 @@ func (c Config) Validate(reserved ...int) error {
 				covered = covered || Covers(d, r.Domain)
 			}
 			if !ok || !covered {
-				return fmt.Errorf("HTTPS route needs a covering certificate")
+				name := r.Name
+				if name == "" {
+					name = r.ID
+				}
+				state := "已启用"
+				if !r.Enabled {
+					state = "已停用"
+				}
+				reason := "未选择证书"
+				if r.CertificateID != "" {
+					if !ok {
+						reason = fmt.Sprintf("引用的证书（ID：%s）不存在或已被删除", r.CertificateID)
+					} else {
+						reason = fmt.Sprintf("所选证书（%s）不覆盖该域名", strings.Join(x.Domains, "、"))
+					}
+				}
+				certificateErrors = append(certificateErrors, fmt.Sprintf("「%s」（ID：%s，%s:%d，%s）：%s", name, r.ID, r.Domain, r.Port, state, reason))
 			}
 		}
 		if r.Enabled {
@@ -153,6 +170,9 @@ func (c Config) Validate(reserved ...int) error {
 			}
 			routes[key] = true
 		}
+	}
+	if len(certificateErrors) > 0 {
+		return fmt.Errorf("以下 HTTPS 反向代理规则的证书配置无效：\n%s\n请先为这些规则选择覆盖对应域名的证书，或删除不再使用的规则；已停用的 HTTPS 规则也需要有效证书。", strings.Join(certificateErrors, "\n"))
 	}
 	return nil
 }

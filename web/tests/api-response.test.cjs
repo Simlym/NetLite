@@ -17,6 +17,10 @@ test('HTML gateway errors do not expose response contents',async()=>{
 test('JSON errors retain the backend message',async()=>{
   await assert.rejects(readAPIResponse(new Response('{"error":"invalid management token"}',{status:401}),'/config'),/invalid management token/)
 })
+
+test('legacy HTTPS certificate errors give a Chinese explanation and next step',async()=>{
+  await assert.rejects(readAPIResponse(new Response(JSON.stringify({error:'HTTPS route needs a covering certificate'}),{status:400}),'/config'),/HTTPS 代理需要选择包含访问域名的证书.*「HTTPS 证书」/)
+})
 test('draft and absent applied checkpoint load successfully',async()=>{
   const result=await readAPIResponse(new Response('{"draft":{"apps":{}},"applied":null}'),'/proxy/config')
   assert.equal(result.applied,null)

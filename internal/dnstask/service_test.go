@@ -10,6 +10,7 @@ import (
 	"netlite/internal/store"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -120,4 +121,48 @@ func TestMissingMasterKeyDoesNotReplaceCredentials(t *testing.T) {
 	if _, e = OpenService(context.Background(), db, private); e == nil {
 		t.Fatal("lost master key silently replaced")
 	}
+}
+
+func TestTaskNameIsOptional(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.DB.Close()
+	svc, err := OpenService(context.Background(), db, filepath.Join(dir, "private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.engine = &fakeEngine{running: map[string]bool{}}
+	h := svc.Router()
+	request(t, h, "PUT", "/accounts/account", accountInput{DNSAccount: model.DNSAccount{Name: "CF", Provider: "cloudflare"}, Secret: "dummy"}, 200)
+	task := model.DDNSTask{ID: "task", AccountID: "account", IPv4Domains: []string{"home.example.com"}, IPv4URL: "https://api4.ipify.org", Interval: 300, TTL: "600"}
+	for _, name := range []string{"", "  ", "  家庭网络  "} {
+		task.Name = name
+		var saved model.DDNSTask
+		if err := json.Unmarshal(request(t, h, "PUT", "/tasks/task", task, 200), &saved); err != nil {
+			t.Fatal(err)
+		}
+		if saved.Name != strings.TrimSpace(name) {
+			t.Fatalf("name = %q", saved.Name)
+		}
+		loaded, err := svc.tasks()
+		if err != nil || len(loaded) != 1 || loaded[0].Name != saved.Name {
+			t.Fatalf("optional name not persisted: %+v, %v", loaded, err)
+		}
+	}
+	task.Name = strings.Repeat("a", 501)
+	request(t, h, "PUT", "/tasks/task", task, 400)
+	// A nameless task can still be enabled, stopped and deleted.
+	task.Name, task.Enabled = "", true
+	request(t, h, "PUT", "/tasks/task", task, 200)
+	if !svc.engine.State(task.ID).Running {
+		t.Fatal("nameless task did not start")
+	}
+	request(t, h, "DELETE", "/tasks/task", nil, 200)
+	if svc.engine.State(task.ID).Running {
+		t.Fatal("deleted task still running")
+	}
+	request(t, h, "DELETE", "/accounts/account", nil, 200)
 }
