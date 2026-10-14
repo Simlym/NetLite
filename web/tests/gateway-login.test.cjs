@@ -25,7 +25,7 @@ function mountApp(responses){
     './proxy-address':loadModule('proxy-address.ts'),
     vue:{ref:value=>({value}),computed:fn=>({get value(){return fn()}}),onMounted:fn=>mounted.push(fn),nextTick:async()=>{}}
   }
-  const sandbox={exports:{},URLSearchParams,crypto:webcrypto,window:{location:{pathname:'/app/netlite/',search:''}},
+  const sandbox={exports:{},URLSearchParams,AbortSignal,Error,crypto:webcrypto,window:{location:{pathname:'/app/netlite/',search:''}},
     sessionStorage:{getItem:()=>{throw new Error('gateway read local credentials')},setItem:()=>{throw new Error('gateway persisted local credentials')}},
     fetch:async(url,options)=>{
       requests.push({url,options})

@@ -23,7 +23,7 @@ for(const mode of ['accounts','tasks']){
         assert.equal(name,'vue')
         return {
           ref:value=>({value}),computed:fn=>({get value(){return fn()}}),
-          onMounted:fn=>mounted.push(fn),onUnmounted:()=>{},nextTick:async()=>{}
+          onMounted:fn=>mounted.push(fn),onUnmounted:()=>{},onActivated:()=>{},onDeactivated:()=>{},nextTick:async()=>{}
         }
       }
     }
