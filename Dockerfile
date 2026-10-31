@@ -19,7 +19,7 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
-COPY web/*.go ./web/
+COPY web/*.go web/index.html ./web/
 COPY --from=web /src/web/dist/ ./web/dist/
 ARG TARGETOS
 ARG TARGETARCH
