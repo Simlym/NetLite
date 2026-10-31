@@ -1,15 +1,16 @@
 # syntax=docker/dockerfile:1
 ARG GO_VERSION=1.27.0
 ARG NODE_VERSION=22
+ARG BASE_REGISTRY=docker.io
 
-FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS web
+FROM --platform=$BUILDPLATFORM ${BASE_REGISTRY}/library/node:${NODE_VERSION}-bookworm-slim AS web
 WORKDIR /src/web
 COPY web/package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY web/ ./
 RUN npm test && npm run build
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS go-base
+FROM --platform=$BUILDPLATFORM ${BASE_REGISTRY}/library/golang:${GO_VERSION}-bookworm AS go-base
 ENV CGO_ENABLED=0 GOFLAGS=-p=2
 RUN mkdir -p /out
 
@@ -40,7 +41,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     -o /out/caddy github.com/caddyserver/caddy/v2/cmd/caddy \
     && cp /go/pkg/mod/github.com/caddyserver/caddy/v2@v2.11.7/LICENSE /out/caddy-LICENSE
 
-FROM debian:bookworm-slim AS runtime
+FROM ${BASE_REGISTRY}/library/debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 netlite \

@@ -5,3 +5,6 @@ services:
     image: netlite:dev
     build:
       context: .
+      args:
+        BASE_REGISTRY: ${NETLITE_BUILD_REGISTRY:-docker.io}
+        BUILDKIT_SYNTAX: ${NETLITE_BUILDKIT_SYNTAX:-docker/dockerfile:1}

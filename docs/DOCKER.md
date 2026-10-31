@@ -132,6 +132,16 @@ docker compose -f compose.yaml -f compose.build.yaml logs --tail=100 netlite
 
 此模式使用本地 `netlite:dev`，利用 Docker 构建缓存；不推送 GHCR。不变的 npm / Caddy 层可复用，Go 模块和编译使用缓存挂载。修改 Dockerfile 或源码后重跑上述构建命令即可。
 
+如果测试机无法直连 Docker Hub，但已实测可访问 DaoCloud，可在本地构建前设置以下变量（也可写入被 Git 忽略的 `.env`），无需修改 Docker daemon 或重启已有容器：
+
+```bash
+export NETLITE_BUILD_REGISTRY=docker.m.daocloud.io
+export NETLITE_BUILDKIT_SYNTAX=docker.m.daocloud.io/docker/dockerfile:1
+docker compose -f compose.yaml -f compose.build.yaml up -d --build --wait
+```
+
+第一个变量替换 Node、Go、Debian 基础镜像仓库，第二个替换 Dockerfile 构建组件的来源。镜像服务可能有白名单或限流；某个镜像拉取成功并不保证其他镜像与标签都可用。npm、Go 模块和 Debian apt 的下载独立于镜像仓库，若这些阶段失败，需按具体错误另行处理。[DaoCloud 使用说明](https://github.com/DaoCloud/public-image-mirror)
+
 代码推送后仍由 CI 回归检查。main / 版本标签生成 GHCR 双架构镜像；部署验收和正式部署使用 GitHub 发布的固定版本 / 提交哈希镜像，确保各机器使用同一份产物。无需把每次保存文件都变成一次 GitHub 完整构建。
 
 ## 本地构建与验证
