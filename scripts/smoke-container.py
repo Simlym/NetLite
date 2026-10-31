@@ -110,7 +110,9 @@ def main():
         csrf = api("auth/me")["csrf_token"]
         eventually(lambda: api("status")["proxy"]["running"])
         assert docker("exec", name, "id", "-u") == "10001"
-        assert "v2.11.7" in docker("exec", name, "/opt/netlite/bin/caddy", "version")
+        # Direct Go builds can report (devel); check the required runtime module.
+        modules = docker("exec", name, "/opt/netlite/bin/caddy", "list-modules")
+        assert "http.handlers.reverse_proxy" in modules
         cookies.clear()
         try:
             request("/api/config", authorized=False)
