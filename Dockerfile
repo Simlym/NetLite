@@ -11,7 +11,8 @@ COPY web/ ./
 RUN npm test && npm run build
 
 FROM --platform=$BUILDPLATFORM ${BASE_REGISTRY}/library/golang:${GO_VERSION}-bookworm AS go-base
-ENV CGO_ENABLED=0 GOFLAGS=-p=2
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV CGO_ENABLED=0 GOFLAGS=-p=2 GOPROXY=${GOPROXY}
 RUN mkdir -p /out
 
 FROM go-base AS backend

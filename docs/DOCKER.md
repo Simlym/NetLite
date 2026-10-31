@@ -132,15 +132,26 @@ docker compose -f compose.yaml -f compose.build.yaml logs --tail=100 netlite
 
 此模式使用本地 `netlite:dev`，利用 Docker 构建缓存；不推送 GHCR。不变的 npm / Caddy 层可复用，Go 模块和编译使用缓存挂载。修改 Dockerfile 或源码后重跑上述构建命令即可。
 
-如果测试机无法直连 Docker Hub，但已实测可访问 DaoCloud，可在本地构建前设置以下变量（也可写入被 Git 忽略的 `.env`），无需修改 Docker daemon 或重启已有容器：
+`compose.build.yaml` 默认启用本次中国地区 Ubuntu 测试机已验证的下载配置：
+
+| 配置 | 默认值 | 作用 |
+| --- | --- | --- |
+| `NETLITE_BUILD_REGISTRY` | `docker.m.daocloud.io` | Node、Go、Debian 基础镜像仓库 |
+| `NETLITE_BUILDKIT_SYNTAX` | `docker.m.daocloud.io/docker/dockerfile:1` | Dockerfile 构建组件 |
+| `NETLITE_GOPROXY` | `https://goproxy.cn` | 后端与 Caddy 的 Go 模块下载，保留依赖校验 |
+
+直接使用上述两份 Compose 文件即可，不需要手工生成 `tools/Dockerfile.mirror`、附加 `tools/compose.mirror.yaml` 或设置环境变量。此前已使用临时文件的测试机，更新代码后改用上面的标准命令，复用同一 Compose 项目数据卷。
+
+如需覆盖默认值，可在 `.env` 或当前终端设置变量。使用官方源的示例：
 
 ```bash
-export NETLITE_BUILD_REGISTRY=docker.m.daocloud.io
-export NETLITE_BUILDKIT_SYNTAX=docker.m.daocloud.io/docker/dockerfile:1
+export NETLITE_BUILD_REGISTRY=docker.io
+export NETLITE_BUILDKIT_SYNTAX=docker/dockerfile:1
+export NETLITE_GOPROXY=https://proxy.golang.org,direct
 docker compose -f compose.yaml -f compose.build.yaml up -d --build --wait
 ```
 
-第一个变量替换 Node、Go、Debian 基础镜像仓库，第二个替换 Dockerfile 构建组件的来源。镜像服务可能有白名单或限流；某个镜像拉取成功并不保证其他镜像与标签都可用。npm、Go 模块和 Debian apt 的下载独立于镜像仓库，若这些阶段失败，需按具体错误另行处理。[DaoCloud 使用说明](https://github.com/DaoCloud/public-image-mirror)
+这些配置只影响本地 Compose 构建；直接 `docker build` 和 GitHub 镜像构建默认使用官方镜像仓库与 Go 代理。无需修改 Docker daemon 或重启已有容器。镜像服务可能有白名单或限流；npm 和 Debian apt 下载不使用上述 Go 代理，若这些阶段失败，需按具体错误处理。[DaoCloud 使用说明](https://github.com/DaoCloud/public-image-mirror)、[Goproxy.cn](https://goproxy.cn/)
 
 代码推送后仍由 CI 回归检查。main / 版本标签生成 GHCR 双架构镜像；部署验收和正式部署使用 GitHub 发布的固定版本 / 提交哈希镜像，确保各机器使用同一份产物。无需把每次保存文件都变成一次 GitHub 完整构建。
 

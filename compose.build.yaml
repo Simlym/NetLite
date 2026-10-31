@@ -1,10 +1,12 @@
 # Development on a Linux test machine:
 # docker compose -f compose.yaml -f compose.build.yaml up -d --build
+# Defaults to the registry and Go proxy verified on the China-region test host.
 services:
   netlite:
     image: netlite:dev
     build:
       context: .
       args:
-        BASE_REGISTRY: ${NETLITE_BUILD_REGISTRY:-docker.io}
-        BUILDKIT_SYNTAX: ${NETLITE_BUILDKIT_SYNTAX:-docker/dockerfile:1}
+        BASE_REGISTRY: ${NETLITE_BUILD_REGISTRY:-docker.m.daocloud.io}
+        BUILDKIT_SYNTAX: ${NETLITE_BUILDKIT_SYNTAX:-docker.m.daocloud.io/docker/dockerfile:1}
+        GOPROXY: ${NETLITE_GOPROXY:-https://goproxy.cn}
