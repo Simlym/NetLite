@@ -1,0 +1,33 @@
+# Standalone alternative: docker compose -f compose.host.yaml up -d
+# Intended for Linux hosts; do not combine with compose.yaml.
+services:
+  netlite:
+    image: ${NETLITE_IMAGE:-ghcr.io/simlym/netlite:main}
+    network_mode: host
+    command:
+      - --listen
+      - "${NETLITE_MANAGEMENT_BIND:-127.0.0.1}:18780"
+      - --data
+      - /data
+      - --caddy
+      - /opt/netlite/bin/caddy
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    volumes:
+      - netlite-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  netlite-data:

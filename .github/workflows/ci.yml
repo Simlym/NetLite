@@ -106,3 +106,9 @@ jobs:
   packages:
     needs: [verify, windows-smoke]
     uses: ./.github/workflows/build.yml
+  container:
+    needs: [verify, windows-smoke]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/container.yml

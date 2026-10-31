@@ -51,3 +51,11 @@ fnOS 实机安装、升级及真实服务商更新/公网传播验证未执行�
 
 隔离浏览器使用虚构账号、停用的 DDNS 任务；证书选择已有 DNSPod 账号后保存 account_id=shared，GET 配置仅含引用，预览不含 Token，真实 Caddy 配置校验通过。docs/certificate-dns-account.png 为该测试截图。fnOS 实机、真实 DNS-01 签发与续期未验证。
 
+
+## Docker / GHCR 部署支持（2026-10-31）
+
+新增多阶段 Dockerfile、bridge / Linux host 两套 Compose、本地构建覆盖配置，以及现有 CI 调用的 GHCR 双架构发布流程。已同步当前内置 DDNS / 证书与 local 管理员认证，不携带 ddns-go 或 Caddy DNS 插件。
+
+本机已通过：`go test ./...`（显式真实 Caddy）、`go vet ./...`、`scripts/smoke.ps1`、前端 54 项测试和 `npm.cmd run build`、三套 Compose 组合的配置校验、actionlint、容器烟测 Python 语法检查。修正了已有证书重载测试对 Windows JSON 路径转义的断言；业务行为不变。测试在沙箱外执行以避免本地连接及 ACL 限制。
+
+本机 Docker Desktop Linux 引擎未就绪，镜像完整构建和 `scripts/smoke-container.py` 实际执行由 GitHub 首次运行验证，通过后才发布。Ubuntu / ARM 实机、fnOS 实机、真实 DNS 凭据、公网 DDNS、ACME 签发与续期验证未执行。

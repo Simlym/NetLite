@@ -42,6 +42,12 @@ ARM64 将 Caddy 脚本第二个架构参数改为 arm64，在对应机器构建�
 远程管理可使用 SSH 隧道：`ssh -N -L 18780:127.0.0.1:18780 user@server`。
 Linux 管理默认 HTTP 加账号/会话，可从面板设置启用 HTTPS；初始 HTTP，保留在可信局域网或 SSH 隧道；Caddy Admin 固定使用回环地址。
 
+## Docker Compose / Ubuntu
+
+已提供多阶段 `Dockerfile`、默认 bridge 网络的 `compose.yaml`、Linux 可选 `compose.host.yaml`，以及开发机本地构建用 `compose.build.yaml`。镜像内含内嵌前端的 NetLite 和标准 Caddy，DDNS 与证书由 NetLite 内置管理，数据统一保存在持久卷，非 root 运行。
+
+现有 CI 检查通过后执行容器烟测，推送 main 发布 `ghcr.io/simlym/netlite:main` 与提交哈希标签，版本标签发布对应版本镜像。Ubuntu 拉取镜像即可部署，生产建议固定版本或提交哈希。详见 [Docker 部署与开发流程](docs/DOCKER.md)。首次 GHCR 发布和 Ubuntu / ARM 实机需分别验收。
+
 ## Windows 开发
 
 需要 Go、Node.js 22.12+、PowerShell 7。
@@ -127,4 +133,4 @@ scripts/               标准 Caddy、打包与集成验证
 packaging/fnos/        fnOS 模板与应用脚本
 ```
 
-后续：Nginx Adapter、Docker 镜像与 Compose、证书导入/吊销、日志轮转及 fnOS 实机验证。
+后续：Nginx Adapter、证书导入/吊销、日志轮转及 fnOS 实机验证。

@@ -100,7 +100,12 @@ func TestCertificateReloadUsesAppliedSnapshot(t *testing.T) {
 	if err := c.ReloadCertificates(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(payload, "plain.localhost") || !strings.Contains(payload, files.CertificateFile) {
+	// JSON escapes Windows path separators; compare with the encoded path.
+	encodedPath, err := json.Marshal(files.CertificateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payload, "plain.localhost") || !strings.Contains(payload, string(encodedPath)) {
 		t.Fatal("renewal activated draft or retained old certificate")
 	}
 	applied, err := c.Applied()
