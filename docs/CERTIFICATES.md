@@ -42,7 +42,7 @@ DNS-01 复用 internal/dnsprovider 的 TXT API。解析 CNAME 后在实际目标
 数据目录必须整体备份。包含内部 CA、ACME 账号与证书私钥；主密钥 dns/master.key 也必须与数据库一起备份。
 私钥只写入应用私有文件，不通过 API 导出，也不注入代理 JSON；代理只获取路径。
 
-所有接口在管理令牌鉴权之后：
+下列 API 均受当前部署模式的认证保护：Linux / Docker 默认 `local`（管理员 Cookie 会话和写接口 CSRF），显式 `token` 兼容模式使用 Bearer Token，fnOS FPK 使用统一网关管理员身份及写接口 CSRF。独立部署路径以 `/api` 开头，fnOS 网关路径在前面增加 `/app/netlite`。参阅 [API.md](API.md)。
 
 - GET /api/certificates/：各策略状态与验证监听地址。
 - POST /api/certificates/{id}/issue：返回 202 表示已排队，不表示签发成功。
