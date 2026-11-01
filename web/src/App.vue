@@ -2,10 +2,11 @@
 import {ref, computed, onMounted, nextTick, watch} from 'vue'
 import {splitTarget, joinTarget} from './proxy-address'
 import {readAPIResponse} from './api-response'
-import {routeCertificateError,certificateDomain,firstValidCertificate,type CertificateState} from './route-certificate'
+import {routeCertificateError,certificateDomain,firstValidCertificate,certificateLabel,type CertificateState} from './route-certificate'
 import {applicationBase,apiPath} from './application-path'
 import DDNSManager from './DDNSManager.vue'
 import CertificateManager from './CertificateManager.vue'
+import CertificateForm from './CertificateForm.vue'
 import PanelSettings from './PanelSettings.vue'
 import PageState from './PageState.vue'
 import RouteDomainInput from './RouteDomainInput.vue'
@@ -15,8 +16,9 @@ type Config={revision:number;routes:Route[];certificates:Cert[]}
 const token=ref(''),logged=ref(false),busy=ref(false),message=ref(''),tab=ref('routes'),status=ref<{proxy?:{running:boolean;modules?:string[]}}>({})
 const authMode=ref(applicationBase(window.location.pathname)==='/'?'local':'fnos-gateway'),initialized=ref(true),username=ref('admin'),password=ref(''),setupCode=ref(''),remember=ref(false),showPassword=ref(false),mustChange=ref(false),newPassword=ref(''),authReady=ref(false),csrf=ref(''),preserveDraft=ref(false)
 const config=ref<Config>({revision:0,routes:[],certificates:[]})
-const route=ref<Route>(newRoute()),cert=ref<Cert>(newCert()),domains=ref(''),editing=ref(false)
+const route=ref<Route>(newRoute()),cert=ref<Cert>(newCert()),editing=ref(false)
 const autoFilledDomain=ref('')
+const editorVisible=ref(false)
 const selectedRouteCertificate=computed(()=>config.value.certificates.find(c=>c.id===route.value.certificate_id))
 const target=ref(splitTarget(route.value.upstream))
 const editor=ref<HTMLDialogElement>(), viewer=ref<HTMLDialogElement>(), deletion=ref<HTMLDialogElement>()
@@ -73,11 +75,11 @@ function reloadIdentity(){window.location.reload()}
 
 async function validateConfig(){await action(async()=>{await api('/proxy/validate','POST');message.value='配置校验通过，可以应用到代理。'})}
 async function applyConfig(){await action(async()=>{const r=await api<{applied_revision:number}>('/proxy/apply','POST');savedChanges.value=false;message.value='已应用版本 '+r.applied_revision+'；代理配置已更新。';await refresh()})}
-function closeEditor(){if(!busy.value)editor.value?.close()}
-async function openEditor(){modalError.value=''; await nextTick(); editor.value?.showModal();editor.value?.querySelector<HTMLElement>('select,input')?.focus()}
+function closeEditor(){if(!busy.value){editor.value?.close();editorVisible.value=false}}
+async function openEditor(){modalError.value='';editorVisible.value=false;await nextTick();editorVisible.value=true; await nextTick(); editor.value?.showModal();editor.value?.querySelector<HTMLElement>('select,input')?.focus()}
 async function add(){
   if(tab.value==='certificates')await action(loadDNSAccounts)
-  editing.value=false;route.value=newRoute();autoFilledDomain.value='';target.value=splitTarget(route.value.upstream);cert.value=newCert();domains.value=''
+  editing.value=false;route.value=newRoute();autoFilledDomain.value='';target.value=splitTarget(route.value.upstream);cert.value=newCert()
   if(tab.value==='routes'&&config.value.certificates.length)await action(async()=>{
     const data=await api<{certificates:Record<string,CertificateState>}>('/certificates/')
     route.value.certificate_id=firstValidCertificate(config.value.certificates,data.certificates)?.id||''
@@ -92,7 +94,7 @@ async function copyConfig(){try{await navigator.clipboard.writeText(JSON.stringi
 async function logout(){await action(async()=>{if(authMode.value==='local')await api('/auth/logout','POST');logged.value=false;token.value='';csrf.value='';password.value='';message.value='';sessionStorage.removeItem('netlite-token');sessionStorage.removeItem('netlite-csrf')})}
 function id(){return Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('')}
 function newRoute():Route{return {id:id(),name:'',domain:'',port:18080,scheme:'https',upstream:'http://127.0.0.1:8080',certificate_id:'',enabled:true}}
-function newCert():Cert{return {id:id(),domains:[],renew_before_days:0,mode:'internal',email:'',account_id:'',staging:true}}
+function newCert():Cert{return {id:id(),domains:[],renew_before_days:0,mode:'dns',email:'',account_id:'',staging:false}}
 async function api<T>(url:string,method='GET',body?:unknown):Promise<T>{const headers:Record<string,string>={'Content-Type':'application/json'};if(authMode.value==='token')headers.Authorization='Bearer '+token.value;else headers['X-CSRF-Token']=csrf.value;const r=await fetch(apiPath(window.location.pathname,url),{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal:method==='GET'?AbortSignal.timeout(20000):undefined}).catch(e=>{if(e?.name==='TimeoutError')throw new Error('请求超时，请检查网络后重试。');throw e});if((r.status===401||(authMode.value==='fnos-gateway'&&r.status===403))&&logged.value){logged.value=false;preserveDraft.value=true;message.value=authMode.value==='fnos-gateway'?'飞牛登录状态或权限已变化，请使用管理员账号重新登录飞牛。':'登录已过期，请重新登录；未保存的编辑内容仍保留。'}if(authMode.value==='fnos-gateway'&&r.redirected&&!r.headers.get('Content-Type')?.includes('application/json')){logged.value=false;preserveDraft.value=true;throw new Error('飞牛会话已失效，请重新登录飞牛后打开 NetLite。')}const result=await readAPIResponse<T>(r,url);if(!['GET','HEAD','OPTIONS'].includes(method)){dataRevision.value++;for(const key of Object.keys(pageLoaded.value))pageLoaded.value[key]=1}return result}
 async function download(path:string,name:string){const response=await fetch(apiPath(window.location.pathname,path),{headers:authMode.value==='token'?{Authorization:'Bearer '+token.value}:{}});if(!response.ok)throw new Error('证书文件尚未就绪或登录状态已失效');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
 async function action(fn:()=>Promise<void>){busy.value=true;message.value='';messageError.value=false;try{await fn()}catch(e){messageError.value=true;message.value=e instanceof Error?e.message:String(e)}finally{busy.value=false}}
@@ -110,10 +112,10 @@ function selectRouteCertificate(){
   modalError.value=''
 }
 async function loadDNSAccounts(){const a=await api<{accounts:{id:string;name:string;provider:string}[]}>('/dns/accounts');dnsAccounts.value=a.accounts;const c=await api<{certificate_providers:string[]}>('/dns-capabilities');certificateProviders.value=c.certificate_providers}
-async function editCert(x:Cert){await action(loadDNSAccounts);cert.value={...x,domains:[...x.domains]};domains.value=x.domains.join(', ');editing.value=true;openEditor()}
+async function editCert(x:Cert){await action(loadDNSAccounts);cert.value={...x,domains:[...x.domains]};editing.value=true;openEditor()}
 function upsert<T extends {id:string}>(list:T[],x:T){const i=list.findIndex(a=>a.id===x.id);if(i<0)list.push(x);else list[i]=x}
 async function submitRoute(){modalError.value=routeCertificateError(route.value,config.value.certificates);if(modalError.value)return;try{route.value.upstream=joinTarget(target.value)}catch(e){modalError.value=e instanceof Error?e.message:String(e);return}await action(async()=>{const old=JSON.parse(JSON.stringify(config.value));upsert(config.value.routes,{...route.value});try{await save();route.value=newRoute();editing.value=false;editor.value?.close()}catch(e){config.value=old;modalError.value=e instanceof Error?e.message:String(e);throw e}})}
-async function submitCert(){modalError.value='';await action(async()=>{const old=JSON.parse(JSON.stringify(config.value));upsert(config.value.certificates,{...cert.value,account_id:cert.value.mode==='dns'?cert.value.account_id:'',domains:domains.value.split(/[,\s]+/).filter(Boolean)});try{await save();cert.value=newCert();domains.value='';editing.value=false;editor.value?.close()}catch(e){config.value=old;modalError.value=e instanceof Error?e.message:String(e);throw e}})}
+async function submitCert(value:Cert){modalError.value='';await action(async()=>{const old=JSON.parse(JSON.stringify(config.value));upsert(config.value.certificates,value);try{await save();cert.value=newCert();editing.value=false;editor.value?.close()}catch(e){config.value=old;modalError.value=e instanceof Error?e.message:String(e);throw e}})}
 async function remove(kind:'routes'|'certificates',key:string){await action(async()=>{const old=JSON.parse(JSON.stringify(config.value));config.value[kind]=config.value[kind].filter(x=>x.id!==key) as Route[]&Cert[];try{await save();deletion.value?.close()}catch(e){config.value=old;modalError.value=e instanceof Error?e.message:String(e);throw e}})}
 onMounted(async()=>{if(new URLSearchParams(window.location.search).get('panel')==='confirm')tab.value='panel';try{const state=await api<{mode:string;initialized:boolean}>('/auth/state');authMode.value=state.mode;initialized.value=state.initialized;if(state.mode==='token'){token.value=sessionStorage.getItem('netlite-token')||'';if(token.value)await enter()}else if(state.mode==='fnos-gateway'){await enter()}else if(state.initialized){try{await enter()}catch{}}}catch(e){message.value=e instanceof Error?e.message:String(e)}finally{authReady.value=true}})
 </script>
@@ -155,13 +157,13 @@ onMounted(async()=>{if(new URLSearchParams(window.location.search).get('panel')=
  <div v-if="config.routes.length" class="mobile-routes"><article v-for="r in config.routes" :key="r.id" class="mobile-route"><div class="mobile-route-head"><strong>{{r.name||'未命名服务'}}</strong><span :class="['route-status',r.enabled?'enabled':'disabled']">{{r.enabled?'启用':'停用'}}</span></div><div class="mobile-endpoint"><span class="muted">访问地址</span><strong class="domain-name">{{r.domain}}</strong><div class="endpoint-meta"><span :class="['protocol-badge',r.scheme]">{{r.scheme.toUpperCase()}}</span><span class="endpoint-port">端口 {{r.port}}</span></div></div><div class="mobile-endpoint"><span class="muted">目标服务</span><span class="target-address">{{splitTarget(r.upstream).address}}</span><div class="endpoint-meta"><span :class="['protocol-badge',splitTarget(r.upstream).scheme]">{{splitTarget(r.upstream).scheme.toUpperCase()}}</span><span class="endpoint-port">端口 {{splitTarget(r.upstream).port}}</span></div></div><div class="small-actions"><button class="secondary" :disabled="busy" :aria-label="'编辑 '+r.domain+':'+r.port" @click="editRoute(r)">编辑</button><button class="danger" :disabled="busy" :aria-label="'删除 '+r.domain+':'+r.port" @click="askDelete('routes',r.id,(r.name?r.name+' · ':'')+r.domain+':'+r.port)">删除</button></div></article></div>
  </section>
  </div>
- <KeepAlive><CertificateManager :revision="dataRevision" v-if="tab==='certificates'" :certificates="config.certificates" :api="api" :download="download" @add="add" @edit="editCert" @remove="c=>askDelete('certificates',c.id,c.domains.join(', '))" /></KeepAlive>
+ <KeepAlive><CertificateManager :revision="dataRevision" v-if="tab==='certificates'" :certificates="config.certificates" :api="api" :download="download" @add="add" @edit="editCert" @remove="c=>askDelete('certificates',c.id,certificateLabel(c.domains))" /></KeepAlive>
  <KeepAlive><DDNSManager :revision="dataRevision" v-if="tab==='ddns'||tab==='dnsaccounts'" :key="tab" :api="api" :mode="tab==='dnsaccounts'?'accounts':'tasks'" /></KeepAlive>
  <template v-if="tab==='engine'"><section class="card engine-card"><div class="section-head"><div><h2>运行状态</h2><p class="overview">反向代理由独立 Caddy 进程提供。</p></div><button class="secondary" :disabled="busy" @click="loadPage()">刷新状态</button></div><div class="engine-metrics"><div><span>代理服务</span><strong :class="['engine-status',{running:status.proxy?.running}]"><span :class="['dot',status.proxy?.running?'on':'']"></span>{{status.proxy?.running?'运行中':'未运行'}}</strong></div><div><span>代理引擎</span><strong>Caddy</strong></div><div><span>已保存配置版本</span><strong>{{config.revision}}</strong></div></div><p v-if="!status.proxy?.running" class="empty">代理尚未运行，请检查独立 Caddy 进程后刷新状态。</p></section><section class="card engine-card"><div class="section-head"><div><h2>配置与诊断</h2><p class="overview">校验已保存的规则，或查看配置详情以排查问题。</p></div></div><div class="diagnostic-row"><div><strong>校验配置</strong><p>检查当前规则能否生成有效的代理配置。</p></div><button class="secondary" :disabled="busy" @click="validateConfig">校验配置</button></div><div class="diagnostic-row"><div><strong>查看 Caddy 配置</strong><p>查看配置草稿和最近已应用的配置，支持复制。</p></div><button class="secondary" :disabled="busy" @click="showCaddy">查看配置</button></div><div class="diagnostic-row"><div><strong>应用配置</strong><p>将已保存的代理规则与证书配置应用到代理。</p></div><button :disabled="busy" @click="applyConfig">应用配置</button></div></section></template>
  </PageState>
  <footer>NetLite · 让网络管理轻一点</footer>
  </div>
- <dialog ref="editor" class="editor-dialog" :class="{'route-editor':tab==='routes'}" aria-labelledby="editor-title" @cancel="busy && $event.preventDefault()">
+ <dialog ref="editor" class="editor-dialog" :class="{'route-editor':tab==='routes','certificate-editor':tab==='certificates'}" aria-labelledby="editor-title" @cancel="busy && $event.preventDefault()" @close="editorVisible=false">
   <section v-if="tab==='routes'">
    <div class="dialog-head"><h2 id="editor-title">{{editing?'编辑':'添加'}}代理</h2><button type="button" class="icon-button" aria-label="关闭" :disabled="busy" @click="closeEditor">×</button></div>
    <form class="route-form" @submit.prevent="submitRoute">
@@ -170,7 +172,7 @@ onMounted(async()=>{if(new URLSearchParams(window.location.search).get('panel')=
     <fieldset class="endpoint-fields">
      <legend>访问端</legend>
      <div v-if="route.scheme==='https'" class="endpoint-certificate-row">
-      <label for="route-certificate">HTTPS 证书</label><select id="route-certificate" v-model="route.certificate_id" @change="selectRouteCertificate"><option value="">请选择证书</option><option v-for="c in config.certificates" :key="c.id" :value="c.id">{{c.domains.join(', ')}}</option></select>
+      <label for="route-certificate">HTTPS 证书</label><select id="route-certificate" v-model="route.certificate_id" @change="selectRouteCertificate"><option value="">请选择证书</option><option v-for="c in config.certificates" :key="c.id" :value="c.id" :title="c.domains.join(', ')">{{certificateLabel(c.domains)}}</option></select>
       <p v-if="!config.certificates.length" class="muted">还没有可选证书，请先到「HTTPS 证书」添加。</p>
      </div>
      <div class="endpoint-row">
@@ -194,7 +196,7 @@ onMounted(async()=>{if(new URLSearchParams(window.location.search).get('panel')=
     <div class="dialog-actions"><button type="button" class="secondary" :disabled="busy" @click="closeEditor">取消</button><button :disabled="busy"><span v-if="busy" class="loading-spinner button-spinner" aria-hidden="true"></span>{{busy?'保存中…':'保存规则'}}</button></div>
    </form>
   </section>
-<section v-if="tab==='certificates'"><div class="dialog-head"><h2 id="editor-title">{{editing?'编辑':'添加'}}证书策略</h2><button type="button" class="icon-button" aria-label="关闭" :disabled="busy" @click="closeEditor">×</button></div><form @submit.prevent="submitCert"><label>域名（逗号分隔）<input v-model="domains" placeholder="*.example.com, example.com" required></label><label>签发方式<select v-model="cert.mode"><option value="internal">内部 CA（本地测试）</option><option value="acme">ACME（HTTP-01）</option><option value="dns">DNS-01（引用 DNS 账号）</option></select></label><label v-if="cert.mode!=='internal'">联系邮箱<input v-model="cert.email" type="email" required></label><template v-if="cert.mode==='dns'"><label>DNS 账号<select v-model="cert.account_id" required><option value="">请选择 DNS 账号</option><option v-for="a in dnsAccounts.filter(a=>certificateProviders.includes(a.provider))" :key="a.id" :value="a.id">{{a.name}} · {{a.provider}}</option></select></label><p class="muted">账号与 DDNS 共用，证书验证需要 TXT 查询、创建和删除权限，无需启用 DDNS。</p><p v-if="!dnsAccounts.some(a=>certificateProviders.includes(a.provider))" class="muted">暂无支持证书验证的 DNS 账号，请先在左侧「DNS 账号」中添加。</p></template><label>提前续期天数（0 表示自动）<input v-model.number="cert.renew_before_days" type="number" min="0" max="60"></label><label v-if="cert.mode!=='internal'" class="check"><input v-model="cert.staging" type="checkbox">使用 Let's Encrypt 测试 CA</label><p class="muted">保存后自动申请并管理续期。HTTP-01 需要公网 80 映射到独立验证端口 18082；DNS-01 无需开放验证端口。</p><p v-if="modalError" class="form-error" role="alert">{{modalError}}</p><div class="dialog-actions"><button type="button" class="secondary" :disabled="busy" @click="closeEditor">取消</button><button :disabled="busy"><span v-if="busy" class="loading-spinner button-spinner" aria-hidden="true"></span>{{busy?'保存中…':'保存策略'}}</button></div></form></section></dialog>
+<section v-if="tab==='certificates'"><div class="dialog-head"><div><h2 id="editor-title">{{editing?'编辑':'添加'}}证书策略</h2><p class="cert-subtitle">保存后自动申请证书，并管理续期。</p></div><button type="button" class="icon-button" aria-label="关闭" :disabled="busy" @click="closeEditor">×</button></div><CertificateForm v-if="editorVisible" :key="cert.id" :certificate="cert" :accounts="dnsAccounts" :providers="certificateProviders" :busy="busy" :error="modalError" @save="submitCert" @cancel="closeEditor" /></section></dialog>
  <dialog ref="deletion" class="delete-dialog" aria-labelledby="delete-title" @cancel="busy && $event.preventDefault()">
   <div class="dialog-head"><h2 id="delete-title">{{certificateUsers.length?'无法删除证书':'确认删除'}}</h2></div>
   <template v-if="certificateUsers.length">

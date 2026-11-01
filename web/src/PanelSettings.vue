@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {certificateLabel} from './route-certificate'
 import {ref,computed,onMounted,onUnmounted,onActivated,onDeactivated} from 'vue'
 import PageState from './PageState.vue'
 type Cert={id:string;domains:string[];mode:string;staging:boolean}
@@ -44,7 +45,7 @@ onUnmounted(()=>{if(poll)clearInterval(poll)})
   <form v-else class="panel-form" @submit.prevent="enable">
    <label class="panel-toggle"><span class="panel-toggle-copy"><strong>启用 HTTPS 访问</strong><span>通过加密连接保护登录信息和管理操作。</span></span><input v-model="enabled" class="panel-switch" type="checkbox" role="switch" :disabled="busy" aria-label="启用 HTTPS 访问"></label>
    <fieldset v-if="enabled" class="panel-https-fields" :disabled="busy">
-    <label>使用证书<select v-model="certificate" required @change="selectCertificate"><option value="" disabled>请选择已签发的证书</option><option v-for="c in certificates" :key="c.id" :value="c.id" :disabled="!states[c.id]?.not_after||states[c.id]?.not_after.startsWith('0001-')||Date.parse(states[c.id]?.not_after)<=Date.now()">{{c.domains.join(', ')}} · {{c.mode==='internal'?'内部 CA':c.staging?'测试 CA':'正式 CA'}} · {{states[c.id]?.not_after&&!states[c.id]?.not_after.startsWith('0001-')?new Date(states[c.id].not_after).toLocaleDateString():'尚未签发'}}</option></select></label>
+    <label>使用证书<select v-model="certificate" required @change="selectCertificate"><option value="" disabled>请选择已签发的证书</option><option v-for="c in certificates" :key="c.id" :value="c.id" :title="c.domains.join(', ')" :disabled="!states[c.id]?.not_after||states[c.id]?.not_after.startsWith('0001-')||Date.parse(states[c.id]?.not_after)<=Date.now()">{{certificateLabel(c.domains)}} · {{c.mode==='internal'?'内部 CA':c.staging?'测试 CA':'正式 CA'}} · {{states[c.id]?.not_after&&!states[c.id]?.not_after.startsWith('0001-')?new Date(states[c.id].not_after).toLocaleDateString():'尚未签发'}}</option></select></label>
     <p v-if="!certificates.length" class="panel-field-hint">还没有证书，请先在「HTTPS 证书」中添加并完成签发。</p>
     <p v-if="certificates.find(c=>c.id===certificate)?.mode==='internal'||certificates.find(c=>c.id===certificate)?.staging" class="panel-trust-note">此证书需要浏览器额外信任；普通访问推荐正式 CA 证书。</p>
     <div class="panel-endpoint-fields"><label>访问域名<input v-model="domain" required placeholder="netlite.example.com" autocomplete="off" aria-describedby="panel-domain-hint"></label><label>管理端口<input :value="panel?.port" readonly></label></div>

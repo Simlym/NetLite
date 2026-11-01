@@ -2,6 +2,16 @@ type Certificate = {id:string;domains:string[]}
 type Route = {scheme:string;domain:string;certificate_id:string}
 export type CertificateState = {status:string;not_after:string;last_issued:string}
 
+export function certificateLabel(domains:string[]):string {
+  const unique=[...new Set(domains)]
+  const bases=[...new Set(unique.map(d=>d.startsWith('*.')?d.slice(2):d))]
+  const base=bases[0]
+  if(!base)return '未配置域名'
+  if(bases.length>1)return `${base} 等 ${bases.length} 个域名`
+  if(unique.includes(`*.${base}`))return `${base}（${unique.includes(base)?'含泛域名':'仅泛域名'}）`
+  return base
+}
+
 export function firstValidCertificate<T extends Certificate>(certificates:T[],states:Record<string,CertificateState>,now=Date.now()):T|undefined {
   return certificates.find(c=>{
     const state=states[c.id]
