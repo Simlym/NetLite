@@ -2,8 +2,7 @@
 
 NetLite 在 Go 后端内实现 DDNS，不再构建、打包或启动 ddns-go。
 实现参考 ddns-go v6.17.7 的服务商 API 与签名；许可证见 THIRD_PARTY_NOTICES.md。
-本次处于开发阶段，不提供旧 ddns-go 目录、旧 Cloudflare 任务或 API 的迁移。
-使用全新的应用数据目录进行开发验证。
+早期 ddns-go 桥接方案的数据结构与当前内置引擎不同，**未提供自动迁移工具**。升级旧部署前请备份整个应用数据目录；测试新实现时使用独立数据目录，避免误覆盖旧数据。
 
 ## 模块
 
@@ -48,7 +47,7 @@ DNS 服务商返回成功后才标记更新成功；接口错误正文和请求 
 
 ## API
 
-所有接口位于 /api/dns，使用管理 Bearer Token：
+独立 Linux / Docker 的接口位于 `/api/dns`，fnOS 网关下位于 `/app/netlite/api/dns`。鉴权**取决于部署模式**：`local` 使用管理员 Cookie 会话及写接口 CSRF；显式兼容 `token` 模式才使用 Bearer Token；当前 FPK 使用飞牛统一网关的管理员身份及写接口 CSRF。详情见 [API.md](API.md)。
 
 - GET /：账号、任务、状态；engine=native。
 - GET /accounts；PUT /accounts/{id}；DELETE /accounts/{id}。
