@@ -69,6 +69,8 @@ NetLite 管理的是 **HTTP/HTTPS/WebSocket 反向代理**，不是通用 TCP/UD
 
 飞牛版接入了 fnOS **统一网关**：设计上复用飞牛登录态，**不需要再设置 NetLite 管理员密码或输入令牌**；仅允许飞牛管理员访问。它不接管飞牛系统的 Web 服务、证书或信任库。
 
+详细的安装要求、Socket 权限与实机验收清单见 [飞牛 FPK 安装说明](docs/FPK.md)。
+
 **注意：** 当前 FPK 要求目标 fnOS 支持统一网关，最低兼容版本及 Socket 权限仍需实机核验。安装包能成功构建不等于已在你的 NAS 上验证通过。如果无法打开入口，请先查看 [飞牛网关说明](docs/FNOS-AUTH.md)，不要直接修改系统 Web 服务。
 
 > Actions 构建产物默认仅保留 **14 天**，并非长期下载链接。当前 GitHub Release 中的旧版本不一定与 `main` 分支一致。构建产物说明见 [下载与构建](docs/BUILD.md)。
@@ -177,6 +179,7 @@ Let's Encrypt 可选**正式环境**或**测试环境**。测试环境用于验�
 | 下载哪个包、如何查看 CI 构建产物 | [构建与部署包](docs/BUILD.md) |
 | Linux 原生安装、账号恢复、面板 HTTPS | [Linux 安装指南](docs/LINUX.md) |
 | Docker host / bridge、升级、数据持久化 | [Docker 部署指南](docs/DOCKER.md) |
+| 飞牛 FPK 安装、升级与实机验收 | [fnOS FPK 安装说明](docs/FPK.md) |
 | 飞牛登录态、统一网关及实机限制 | [fnOS 认证与接入](docs/FNOS-AUTH.md) |
 | DDNS 的更新规则与支持范围 | [DDNS 说明](docs/DDNS-INTEGRATION.md) |
 | DNS 账号权限与共用方式 | [DNS 账号](docs/DNS-ACCOUNTS.md) |
