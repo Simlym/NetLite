@@ -46,12 +46,16 @@ HTTP 和 TLS 使用同一管理端口。确认后，HTTP 页面自动跳转至�
 ## 升级已有部署
 
 备份整个数据目录。使用 local 模式启动旧数据目录后，旧 admin-token 可用于一次初始化管理员；不能继续当业务 API 令牌使用。
-已有 fnOS 包和旧集成工具通过显式 `--auth-mode token` 保持令牌兼容，令牌仍位于私有数据目录。Linux 新安装默认 local。自动化客户端暂需显式选择兼容模式，不能用 local 初始化码调用业务接口。
+旧集成若仍依赖 Bearer Token，可以在**明确选择** `--auth-mode token` 时使用兼容鉴权；不代表当前 FPK 的默认行为。Linux 新安装使用 `local`（账号 + Cookie 会话），当前 FPK 使用 `fnos-gateway`（飞牛管理员登录态）。一次性初始化码不能用作 `local` 模式的业务 API Token。
 现有 Linux 安装升级应停服务、替换二进制，再安装新 service 文件，确认 `/etc/netlite/netlite.env` 中监听地址后启动；未配置时新模板默认监听网络。重复运行安装器会拒绝覆盖已有程序和账号。
 
-## fnOS 预留
+## 与 fnOS FPK 的区别
 
-认证 Provider 与业务 API 分离；`--auth-mode fnos-gateway` 预留但当前拒绝启动，不读取或信任用户伪造的身份 Header。
-待核验官方网关文档后实现私有 Unix Socket、管理员身份鉴权和路径前缀。FPK 当前继续使用 token，不关闭认证，不修改 fnOS 系统 Web 服务。
+| 项目 | Linux 原生部署 | fnOS FPK |
+| --- | --- | --- |
+| 管理入口 | 独立 TCP 端口，默认 `18780` | 飞牛统一网关 `/app/netlite/`，后端使用私有 Unix Socket |
+| 管理员身份 | 本地账号与 Cookie 会话 | 复用飞牛登录态，仍校验管理员权限 |
+| 面板 HTTPS | 可通过面板设置启用 | 由飞牛入口处理，不提供独立 HTTPS 面板设置 |
+| 业务代理监听 | 具备权限时可使用 80 / 443 | 非特权高位端口，不接管飞牛系统 Web 服务 |
 
-Linux 原生验证不等于 fnOS 实机验证或真实 DNS/公网 ACME 验证；后者需实际设备与凭据。
+`fnos-gateway` 已实现，**但尚未完成 fnOS 实机登录与 Socket 权限、升级验证**。请参阅 [FPK 安装](FPK.md) 和 [统一网关](FNOS-AUTH.md)。Linux 测试不能代表真实 fnOS 兼容性，也不能替代公网 DNS/ACME 实测。
