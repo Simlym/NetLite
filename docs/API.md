@@ -22,7 +22,8 @@
 | POST | /api/proxy/validate | 检查启用 HTTPS 的证书可用性并用真实引擎校验，失败 422 |
 | POST | /api/proxy/apply | 应用当前草稿并保存业务快照，返回 applied_revision；未就绪或过期证书拒绝应用 |
 | GET | /api/proxy/config | 当前草稿和已应用代理渲染结果；证书未就绪时 draft=null，draft_error 给出原因 |
-| GET | /api/status | 代理运行状态 |
+| GET | /api/status | 代理运行状态、部署网络信息；端口已监听不等于公网可达 |
+| POST | /api/proxy/test-target | 测试从 NetLite 到上游 HTTP/HTTPS 地址的连通性，不代表公网端到端访问成功 |
 
 Config 为 revision、routes 和 certificates。Route 字段为 id/name/domain/port/scheme/upstream/certificate_id/enabled。
 Certificate 字段为 id/domains/mode/email/staging/account_id/renew_before_days。mode 为 internal/acme（HTTP-01）/dns（DNS-01）。
