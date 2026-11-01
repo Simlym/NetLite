@@ -1,9 +1,15 @@
 # Standalone alternative: docker compose -f compose.host.yaml up -d
-# Intended for Linux hosts; do not combine with compose.yaml.
+# Recommended for Linux VPS; do not combine with compose.yaml.
 services:
   netlite:
     image: ${NETLITE_IMAGE:-ghcr.io/simlym/netlite:main}
     network_mode: host
+    # Only the short-lived setpriv bootstrap runs as root. NetLite and Caddy
+    # run as 10001 with just NET_BIND_SERVICE in every capability set.
+    user: "0:0"
+    entrypoint: ["/opt/netlite/bin/netlite-host"]
+    environment:
+      NETLITE_NETWORK_MODE: host
     command:
       - --listen
       - "${NETLITE_MANAGEMENT_BIND:-127.0.0.1}:18780"
@@ -12,11 +18,15 @@ services:
       - --caddy
       - /opt/netlite/bin/caddy
     restart: unless-stopped
-    init: true
     stop_grace_period: 30s
     read_only: true
     cap_drop:
       - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+      - SETPCAP
     security_opt:
       - no-new-privileges:true
     tmpfs:

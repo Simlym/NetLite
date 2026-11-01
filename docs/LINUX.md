@@ -8,6 +8,10 @@ Linux 发布包包含 NetLite、独立标准 Caddy、安装脚本和内嵌 Vue �
 解压对应架构发布包后，执行 `sudo bash install.sh`。安装器会询问端口、网络/仅本机访问方式、管理员用户名和密码；密码留空时生成临时密码，在安装完成时显示，首次登录必须更换。
 安装器创建 netlite 系统用户，将程序放在 `/opt/netlite/bin`、私有数据放在 `/var/lib/netlite`，注册并启动 systemd 服务。访问地址在启动检查通过后显示。安装器不自动修改防火墙或云安全组；网络访问必须允许管理端口。公网长期访问应启用 HTTPS。
 
+systemd 模板通过 `AmbientCapabilities=CAP_NET_BIND_SERVICE` 和对应的能力边界，使 netlite 用户及独立 Caddy 子进程可以监听 80/443，不需要 root 运行。已有部署需更新 service 文件、执行 `sudo systemctl daemon-reload` 并重启 NetLite 后才获得该权限；直接以普通用户执行二进制不保证能绑定低端口。不会修改其他 Web 服务或宿主机端口阈值。
+
+新增代理默认 HTTPS 443，切换 HTTP 默认 80。主操作“保存并应用”会先保存草稿再应用；失败时草稿仍保留，页面显示具体错误。可选择“仅保存草稿”稍后应用。规则状态区分待应用、已停用、已监听和未监听；已监听不代表公网可达。编辑窗口的“测试目标连接”只检查 NetLite 到目标的 HTTP/HTTPS 连接，不代替公网验收。
+
 独立运行默认回环监听：`./bin/netlite --data ./data --caddy "$PWD/bin/caddy"`。
 未使用安装器初始化账号时，执行 `./bin/netlite info --data ./data` 获取一次性初始化码，在网页设置管理员。该码沿用 admin-token 文件，但 local 模式下它不能访问业务 API，管理员创建后不能再次初始化。
 

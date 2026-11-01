@@ -121,8 +121,8 @@ func (c Config) Validate(reserved ...int) error {
 		if !Domain(r.Domain) || (r.Scheme != "http" && r.Scheme != "https") {
 			return fmt.Errorf("invalid route domain/scheme")
 		}
-		if r.Port < 1024 || r.Port > 65535 {
-			return fmt.Errorf("use unprivileged port 1024..65535")
+		if r.Port < 1 || r.Port > 65535 {
+			return fmt.Errorf("代理端口须为 1..65535")
 		}
 		for _, p := range reserved {
 			if r.Port == p {

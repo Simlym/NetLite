@@ -6,6 +6,8 @@
 !cmd/**
 !internal/
 !internal/**
+!deploy/
+!deploy/host-entrypoint.sh
 !THIRD_PARTY_NOTICES.md
 !docs/
 !docs/licenses/

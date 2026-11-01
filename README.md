@@ -44,7 +44,7 @@ Linux 管理默认 HTTP 加账号/会话，可从面板设置启用 HTTPS；初�
 
 ## Docker Compose / Ubuntu
 
-已提供多阶段 `Dockerfile`、默认 bridge 网络的 `compose.yaml`、Linux 可选 `compose.host.yaml`，以及开发机本地构建用 `compose.build.yaml`。镜像内含内嵌前端的 NetLite 和标准 Caddy，DDNS 与证书由 NetLite 内置管理，数据统一保存在持久卷，非 root 运行。
+Linux VPS 推荐使用 `docker compose -f compose.host.yaml up -d --wait`：网页新增代理端口后直接监听宿主机，无需逐次修改 Docker 端口映射，支持 80/443。既有 `compose.yaml` 保持 bridge 网络和原有端口，升级不会自动切换网络。另提供开发机本地构建用 `compose.build.yaml`。镜像内含内嵌前端的 NetLite 和标准 Caddy，DDNS 与证书由 NetLite 内置管理，数据统一保存在持久卷，应用进程非 root 运行。
 
 现有 CI 检查通过后执行容器烟测，推送 main 发布 `ghcr.io/simlym/netlite:main` 与提交哈希标签，版本标签发布对应版本镜像。Ubuntu 拉取镜像即可部署，生产建议固定版本或提交哈希。详见 [Docker 部署与开发流程](docs/DOCKER.md)。首次 GHCR 发布和 Ubuntu / ARM 实机需分别验收。
 
@@ -80,7 +80,7 @@ HTTP-01 使用 NetLite 专用验证端口，默认 18082，公网 TCP 80 必须�
 
 - 管理端口：18780；私有 Caddy Admin：127.0.0.1:20190。
 - HTTP-01：18082，可通过 --acme-http-listen 修改。三个端口不能用于代理规则。
-- 代理只允许 1024..65535 的高位端口；使用 DNS-01 时无需开放验证端口。
+- VPS / 原生代理支持 1..65535，低端口需要部署授予绑定权限；fnOS 保持 1024..65535，不接管系统 Web 服务。使用 DNS-01 时无需开放验证端口。
 - 数据目录包含 netlite.db、admin-token、dns/master.key、certificates/ 和 proxy-applied.json，备份应保留整个目录。
 - certificates/ 包含 ACME 账号私钥、内部 CA 私钥和不可变版本的证书/私钥。Linux 私有目录 0700、文件 0600，Windows 限制当前账号 ACL。
 - 暂存的 TXT 验证记录会记入数据库，失败或重启后重试精确清理，不删除整个 TXT RRset。

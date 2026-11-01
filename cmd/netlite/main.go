@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"netlite/internal/auth"
 	"netlite/internal/certificates"
+	"netlite/internal/deployment"
 	"netlite/internal/dnsprovider"
 	"netlite/internal/dnstask"
 	"netlite/internal/model"
@@ -81,6 +82,10 @@ func run() error {
 		return fmt.Errorf("authentication mode unavailable: %s", *authMode)
 	}
 	isGateway := *authMode == "fnos-gateway"
+	networkInfo, err := deployment.Parse(os.Getenv("NETLITE_NETWORK_MODE"), os.Getenv("NETLITE_PORT_MAPPINGS"), isGateway)
+	if err != nil {
+		return err
+	}
 	if isGateway && (runtime.GOOS != "linux" || *gatewaySocket == "") {
 		return fmt.Errorf("fnos-gateway requires Linux and --gateway-socket")
 	}
@@ -169,6 +174,13 @@ func run() error {
 	}
 	engine := proxy.New(*binary, *data, *admin)
 	var adapter proxy.ProxyEngine = engine
+	appliedAtStartup, e := adapter.Applied()
+	if e != nil {
+		return e
+	}
+	if e = networkInfo.Validate(appliedAtStartup); e != nil {
+		return e
+	}
 	var configMu sync.Mutex
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -322,6 +334,10 @@ func run() error {
 				fail(w, 400, e)
 				return
 			}
+			if e := networkInfo.Validate(c); e != nil {
+				fail(w, 400, e)
+				return
+			}
 			if e := panelService.ValidateConfig(c); e != nil {
 				fail(w, 400, e)
 				return
@@ -401,13 +417,43 @@ func run() error {
 			}
 			respond(w, 200, map[string]any{"applied_revision": c.Revision})
 		})
+		r.Post("/proxy/test-target", func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Upstream string `json:"upstream"`
+			}
+			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&body); err != nil {
+				fail(w, 400, fmt.Errorf("请填写有效的目标地址"))
+				return
+			}
+			if err := decoder.Decode(new(any)); err != io.EOF {
+				fail(w, 400, fmt.Errorf("expected one JSON object"))
+				return
+			}
+			result, err := proxy.TestTarget(r.Context(), body.Upstream)
+			if err != nil {
+				fail(w, 400, err)
+				return
+			}
+			respond(w, 200, result)
+		})
 		r.Get("/status", func(w http.ResponseWriter, r *http.Request) {
+			configMu.Lock()
+			defer configMu.Unlock()
 			p, e := adapter.Status(r.Context())
 			if e != nil {
 				fail(w, 500, e)
 				return
 			}
-			respond(w, 200, map[string]any{"proxy": p, "certificate_note": "certificates are issued and renewed by NetLite; inspect /api/certificates"})
+			applied, e := adapter.Applied()
+			if e != nil {
+				fail(w, 500, e)
+				return
+			}
+			p["applied_revision"] = applied.Revision
+			p["applied_routes"] = applied.Routes
+			respond(w, 200, map[string]any{"proxy": p, "deployment": networkInfo, "certificate_note": "certificates are issued and renewed by NetLite; inspect /api/certificates"})
 		})
 
 	})

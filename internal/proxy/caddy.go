@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -133,9 +134,9 @@ func (c *Caddy) load(ctx context.Context, b []byte) error {
 		return fmt.Errorf("Caddy reload failed")
 	}
 	defer res.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 16<<10))
 	if res.StatusCode != 200 {
-		return fmt.Errorf("Caddy rejected configuration (%d)", res.StatusCode)
+		return loadError(res.StatusCode, string(body))
 	}
 	return nil
 }
@@ -231,9 +232,50 @@ func (c *Caddy) Status(ctx context.Context) (map[string]any, error) {
 		return map[string]any{"running": false}, nil
 	}
 	defer res.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
+	var active struct {
+		Apps struct {
+			HTTP struct {
+				Servers map[string]struct {
+					Listen []string `json:"listen"`
+				} `json:"servers"`
+			} `json:"http"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&active); err != nil {
+		return map[string]any{"running": false, "listening_ports": []int{}}, nil
+	}
+	ports := []int{}
+	seen := map[int]bool{}
+	for _, server := range active.Apps.HTTP.Servers {
+		for _, address := range server.Listen {
+			_, port, err := net.SplitHostPort(address)
+			p, parseErr := strconv.Atoi(port)
+			if err == nil && parseErr == nil && !seen[p] {
+				ports = append(ports, p)
+				seen[p] = true
+			}
+		}
+	}
+	sort.Ints(ports)
 	mods, _ := c.Modules(ctx)
-	return map[string]any{"running": res.StatusCode == 200, "modules": mods, "engine": "caddy"}, nil
+	return map[string]any{"running": res.StatusCode == 200, "listening_ports": ports, "modules": mods, "engine": "caddy"}, nil
+}
+
+var listenPort = regexp.MustCompile(`:(\d{1,5})(?:\D|$)`)
+
+func loadError(status int, body string) error {
+	port := ""
+	if match := listenPort.FindStringSubmatch(body); len(match) > 1 {
+		port = "（端口 " + match[1] + "）"
+	}
+	switch {
+	case strings.Contains(body, "address already in use"), strings.Contains(body, "Only one usage"):
+		return fmt.Errorf("代理监听失败%s：端口已被占用，请换用空闲端口；不会停止已有服务", port)
+	case strings.Contains(body, "permission denied"), strings.Contains(body, "access permissions"):
+		return fmt.Errorf("代理监听失败%s：权限不足；监听 80/443 需要部署提供低端口绑定权限", port)
+	default:
+		return fmt.Errorf("代理应用失败（%d），请检查证书和代理日志；尚未更新已应用配置", status)
+	}
 }
 func (c *Caddy) Run(ctx context.Context) error {
 	// Refuse to attach to another service on the selected private admin port.

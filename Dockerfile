@@ -43,16 +43,18 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     && cp /go/pkg/mod/github.com/caddyserver/caddy/v2@v2.11.7/LICENSE /out/caddy-LICENSE
 
 FROM ${BASE_REGISTRY}/library/debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 netlite \
     && useradd --uid 10001 --gid netlite --no-create-home --home-dir /data --shell /usr/sbin/nologin netlite \
     && install -d -o netlite -g netlite -m 0700 /data
 COPY --from=backend --chmod=0755 /out/netlite /opt/netlite/bin/netlite
 COPY --from=caddy --chmod=0755 /out/caddy /opt/netlite/bin/caddy
+COPY --chmod=0755 deploy/host-entrypoint.sh /opt/netlite/bin/netlite-host
 COPY --from=caddy /out/caddy-LICENSE /opt/netlite/licenses/caddy-LICENSE
 COPY THIRD_PARTY_NOTICES.md docs/licenses/acmez-LICENSE.txt /opt/netlite/licenses/
 ENV HOME=/data XDG_DATA_HOME=/data/xdg/data XDG_CONFIG_HOME=/data/xdg/config
+ENV NETLITE_NETWORK_MODE=unknown
 WORKDIR /opt/netlite
 USER 10001:10001
 EXPOSE 18780/tcp 18080/tcp 18443/tcp 18443/udp

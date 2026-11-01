@@ -2,7 +2,23 @@
 
 NetLite 镜像包含内嵌前端的 Go 后端和标准 Caddy；DDNS、公共 DNS API 与证书生命周期均由 NetLite 内置管理。由后端管理自己的子进程，不连接宿主机已有 Caddy，也不修改系统 Web 服务。运行时无需 Go、Node.js 或 Python。
 
-支持构建 `linux/amd64` 和 `linux/arm64` 镜像。默认 bridge 网络，另提供 Linux host 网络配置。FPK 构建路径保持独立。
+支持构建 `linux/amd64` 和 `linux/arm64` 镜像。Linux VPS 推荐 host 网络，可在网页直接新增入口端口；`compose.yaml` 仍保留 bridge 配置兼容已有部署。FPK 构建路径保持独立。
+
+## Linux VPS 推荐部署
+
+首次部署下载 `compose.host.yaml` 和 `deploy/docker.env.example`（保存为 `.env`），设置已发布的镜像版本后启动：
+
+```bash
+docker compose -f compose.host.yaml up -d --wait
+```
+
+此方式不需要 `ports` 映射。网页 HTTPS 默认端口 443、HTTP 默认 80，其他入口端口直接在网页配置。管理默认只监听宿主机 `127.0.0.1:18780`；可通过 SSH 转发访问。宿主机 443 必须空闲，安全组和防火墙仍需允许访问；NetLite 不会停止已有服务来腾出端口。
+
+例如 `xq.teanap.top → http://127.0.0.1:8080`：在网页选择证书，填写 HTTPS 443、目标 HTTP / 127.0.0.1 / 8080，点击“测试目标连接”后“保存并应用”。host 模式的 127.0.0.1 就是 VPS 宿主机。证书需先就绪；公共证书建议 DNS-01。HTTP-01 仍需要公网 80 到独立 18082 验证监听器的转发，业务 80 不会自动转交验证请求。
+
+host 模板以 root 启动短暂的 `setpriv` 引导，授予降权所需的 SETUID/SETGID/SETPCAP 和绑定端口的 NET_BIND_SERVICE；在启动 NetLite 前清空附加组，降至 UID/GID 10001，并将继承、ambient 和 bounding 能力限定为 NET_BIND_SERVICE。NetLite 与独立 Caddy 均以该非 root 用户运行，保留 no-new-privileges 和只读根文件系统，不修改宿主机 sysctl。管理命令建议使用 `docker compose -f compose.host.yaml exec --user 10001:10001 netlite /opt/netlite/bin/netlite info --data /data`；普通 `exec` 不经过降权入口。
+
+这套配置需要包含 `netlite-host` 引导脚本的新镜像，不能只更新 Compose 后继续使用旧镜像。rootless Docker / 用户命名空间部署的低端口和 host 网络能力可能不同，需单独验收。
 
 ## GitHub 构建和镜像发布
 
@@ -26,7 +42,7 @@ NetLite 镜像包含内嵌前端的 Go 后端和标准 Caddy；DDNS、公共 DNS
 
 生产部署建议固定经过验收的版本、提交哈希或镜像摘要，避免 `main` / `latest` 随后续发布漂移。已有版本标签不要重复移动。应用升级可能改变数据库，回退镜像前应恢复对应的数据备份。
 
-## Ubuntu 首次部署
+## Ubuntu bridge 部署（兼容方式）
 
 前置：安装并启动 Docker Engine 和 Compose v2。可参考 [Docker 官方 Ubuntu 安装说明](https://docs.docker.com/engine/install/ubuntu/)。以下命令假设当前用户已获准访问 Docker；否则按本机权限使用 `sudo docker`。
 
@@ -64,7 +80,11 @@ docker compose exec netlite /opt/netlite/bin/netlite info --data /data
 
 ## bridge 网络：端口与上游地址
 
-默认发布 `18080/tcp`、`18443/tcp` 和 `18443/udp`。端口发布不会自动创建代理规则，请在界面添加规则、校验并应用。规则端口仍限定 `1024..65535`。
+默认发布 `18080/tcp`、`18443/tcp` 和 `18443/udp`，保留已有映射。端口发布不会自动创建代理规则。网页通过部署声明显示外部访问入口，规则仍保存实际容器监听端口。
+
+在 `.env` 设置 `NETLITE_HTTPS_PORT=443` 后执行 `docker compose up -d --wait`，即可将公网 443 映射到容器 18443。网页选择“外部 443”，会显示 `https://你的域名`，无需填写容器端口。HTTP 同理由 `NETLITE_HTTP_PORT` 配置；管理入口不计入业务入口。
+
+自定义端口需要在 `ports` 中增加实际映射，并在 `.env` 的 `NETLITE_EXTRA_PORT_MAPPINGS` 中追加以逗号开头的声明，例如 `,8443:8443`。声明格式是 `外部TCP端口:容器监听端口`；声明本身不会发布端口，必须与实际 Docker 配置一致。页面对未声明的端口显示提示和配置片段。未提供部署声明的自定义容器显示“外部入口未确认”，不会将容器监听成功当作公网可访问。部署信息来自显式环境配置，不读取 Docker Socket。
 
 - 新增其他监听端口，例如 `19080`，需在 `compose.yaml` 的 `ports` 中加入 `"19080:19080/tcp"`，然后执行 `docker compose up -d`。
 - 管理界面在容器内监听 `0.0.0.0:18780`，宿主机发布范围由 Compose 控制；Caddy Admin 保持容器内 `127.0.0.1:20190`。
@@ -74,7 +94,7 @@ docker compose exec netlite /opt/netlite/bin/netlite info --data /data
 - DNS-01 不需要开放公网验证端口。HTTP-01 由 NetLite 的独立 `18082` 监听器处理，需额外发布 `80:18082/tcp`，并确保公网 TCP 80 可达；此时不能同时把宿主机 80 映射到业务 18080，可将业务 HTTP 入口另设高位端口。默认 Compose 不发布验证端口；当前不支持 TLS-ALPN-01。Caddy 不负责证书签发，需先确认 NetLite 证书状态为 ready，再校验和应用代理。
 - 检查实际端口可达范围；Docker 发布端口与宿主机防火墙有独立规则关系，不能仅依据 UFW 状态判断。参考 [Docker 防火墙说明](https://docs.docker.com/engine/network/packet-filtering-firewalls/)。
 
-## Ubuntu host 网络（可选）
+## 已有 bridge 部署迁移至 host
 
 如果希望在网页新增代理端口后立即监听宿主机，或者需要访问只绑定宿主机回环地址的上游，可使用独立的 `compose.host.yaml`：
 
@@ -88,6 +108,8 @@ docker compose -f compose.host.yaml up -d --wait
 ```
 
 两种配置在同一目录、同一 Compose 项目名下复用同一数据卷。不要同时启动，也不要用 `-f compose.yaml -f compose.host.yaml` 合并；后续操作统一带 `-f compose.host.yaml`。
+
+迁移前备份数据并确认新镜像版本。已有规则保留原监听端口，不自动改成 80/443；迁移后可在网页编辑。bridge 中的 `host.docker.internal` 不是 host 模式的内置域名，宿主机目标改用 127.0.0.1；Docker 服务名也不再通过原 bridge DNS 解析，需改为宿主机可访问的地址。迁移不会删除卷或修改其他服务。
 
 host 网络共享宿主机网络空间，`127.0.0.1` 即宿主机；不使用 `ports`。默认管理监听仍为 `127.0.0.1:18780`。Caddy Admin 需要宿主机 `127.0.0.1:20190` 空闲，占用时应用拒绝启动。HTTP-01 在验证期间监听宿主机 `0.0.0.0:18082`，届时也需空闲；使用公网 HTTP-01 时还需配置公网 TCP 80 到该端口的转发。代理新增端口还需检查宿主机端口冲突和防火墙。本示例面向 Linux，不作为 Windows/macOS 默认方案。
 

@@ -12,6 +12,7 @@ function script(name,props,expose,extras={}){
   const hooks={mounted:[],activated:[],deactivated:[]}
   let now=100000
   const context=vm.createContext({exports:{},Error,URL,URLSearchParams,AbortSignal,crypto:webcrypto,
+    setTimeout:(fn,ms)=>{const timer=setTimeout(fn,ms);timer.unref();return timer},clearTimeout,
     Date:class extends Date{static now(){return now}},
     defineProps:()=>props,withDefaults:p=>p,defineEmits:()=>()=>{},
     window:{location:{pathname:'/',search:''}},...extras,
@@ -30,6 +31,46 @@ function script(name,props,expose,extras={}){
 }
 function app(fetch){return script('App.vue',{},'navigate,loadPage,pageLoading,pageError,pageLoaded,config,status,tab,api',{fetch})}
 function json(body){return new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json'}})}
+
+test('save and apply retains the persisted draft and editor when applying fails',async()=>{
+  const calls=[]
+  const x=script('App.vue',{},'submitRoute,config,route,target,savedChanges,modalError',{
+    fetch:async(url,options)=>{
+      calls.push([url,options.method])
+      if(url==='/api/config')return json({...JSON.parse(options.body),revision:1})
+      if(url==='/api/proxy/apply')return new Response(JSON.stringify({error:'端口已被占用'}),{status:422,headers:{'Content-Type':'application/json'}})
+      throw new Error('unexpected '+url)
+    }
+  })
+  x.state.route.value={id:'app',domain:'app.example.com',port:80,scheme:'http',upstream:'http://localhost:8080',certificate_id:'',enabled:true}
+  await x.state.submitRoute()
+  assert.equal(x.state.config.value.revision,1)
+  assert.equal(x.state.config.value.routes[0].id,'app')
+  assert.equal(x.state.route.value.id,'app')
+  assert.equal(x.state.savedChanges.value,true)
+  assert.match(x.state.modalError.value,/规则已保存为草稿.*端口已被占用/)
+  assert.deepEqual(calls,[['/api/config','PUT'],['/api/proxy/apply','POST']])
+})
+
+test('save-only never applies and successful apply does not become a failure when status refresh fails',async()=>{
+  for(const apply of [false,true]){
+    const calls=[]
+    const x=script('App.vue',{},'submitRoute,config,route,savedChanges,modalError,message',{
+      fetch:async(url,options)=>{
+        calls.push(url)
+        if(url==='/api/config')return json({...JSON.parse(options.body),revision:1})
+        if(url==='/api/proxy/apply')return json({applied_revision:1})
+        throw new Error('status refresh failed')
+      }
+    })
+    x.state.route.value={id:'app',domain:'app.example.com',port:80,scheme:'http',upstream:'http://localhost:8080',certificate_id:'',enabled:true}
+    await x.state.submitRoute(apply)
+    assert.equal(x.state.savedChanges.value,!apply)
+    assert.equal(x.state.modalError.value,'')
+    if(apply){assert.match(x.state.message.value,/已应用版本 1.*状态刷新失败/);assert.equal(calls.length,3)}
+    else assert.deepEqual(calls,['/api/config'])
+  }
+})
 
 test('adding a route selects the first issued valid certificate and editing preserves the existing selection',async()=>{
   const x=script('App.vue',{},'add,editRoute,config,route,tab',{

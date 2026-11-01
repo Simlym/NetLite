@@ -9,6 +9,7 @@ User=netlite
 Group=netlite
 WorkingDirectory=/opt/netlite
 Environment=NETLITE_LISTEN=0.0.0.0:18780
+Environment=NETLITE_NETWORK_MODE=native
 EnvironmentFile=-/etc/netlite/netlite.env
 ExecStart=/opt/netlite/bin/netlite --auth-mode local --listen ${NETLITE_LISTEN} --data /var/lib/netlite --caddy /opt/netlite/bin/caddy
 Restart=on-failure
@@ -16,6 +17,8 @@ RestartSec=5
 TimeoutStopSec=25
 UMask=0077
 NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 ProtectSystem=strict
 ReadWritePaths=/var/lib/netlite
 ProtectHome=true

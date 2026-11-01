@@ -10,12 +10,25 @@ func TestValidateBoundary(t *testing.T) {
 	if e := base.Validate(18780, 20190); e != nil {
 		t.Fatal(e)
 	}
+	for _, port := range []int{1, 80, 443, 1023, 1024, 65535} {
+		c := base
+		c.Routes = append([]Route{}, base.Routes...)
+		c.Routes[0].Port = port
+		if err := c.Validate(); err != nil {
+			t.Fatalf("port %d rejected: %v", port, err)
+		}
+		if err := c.Validate(port); err == nil {
+			t.Fatalf("reserved port %d accepted", port)
+		}
+	}
 	cases := []struct {
 		name string
 		edit func(*Config)
 	}{
 		{"reserved port", func(c *Config) { c.Routes[0].Port = 18780 }},
-		{"privileged port", func(c *Config) { c.Routes[0].Port = 443 }},
+		{"zero port", func(c *Config) { c.Routes[0].Port = 0 }},
+		{"negative port", func(c *Config) { c.Routes[0].Port = -1 }},
+		{"out of range port", func(c *Config) { c.Routes[0].Port = 65536 }},
 		{"uncovered TLS", func(c *Config) { c.Routes[0].Domain = "other.example.com" }},
 		{"upstream path", func(c *Config) { c.Routes[0].Upstream = "http://localhost/admin" }},
 		{"wildcard without DNS", func(c *Config) { c.Certificates[0].Domains = []string{"*.example.com"} }},

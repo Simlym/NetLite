@@ -59,3 +59,13 @@ fnOS 实机安装、升级及真实服务商更新/公网传播验证未执行�
 本机已通过：`go test ./...`（显式真实 Caddy）、`go vet ./...`、`scripts/smoke.ps1`、前端 54 项测试和 `npm.cmd run build`、三套 Compose 组合的配置校验、actionlint、容器烟测 Python 语法检查。修正了已有证书重载测试对 Windows JSON 路径转义的断言；业务行为不变。测试在沙箱外执行以避免本地连接及 ACL 限制。
 
 本机 Docker Desktop Linux 引擎未就绪，镜像完整构建和 `scripts/smoke-container.py` 实际执行由 GitHub 首次运行验证，通过后才发布。Ubuntu / ARM 实机、fnOS 实机、真实 DNS 凭据、公网 DDNS、ACME 签发与续期验证未执行。
+
+## VPS 访问入口与应用诊断（2026-11-01）
+
+VPS / 原生代理允许 1..65535，fnOS 网关继续限制高位端口。Linux systemd 使用 ambient NET_BIND_SERVICE；VPS host Compose 通过 setpriv 在应用启动前降权，保留该能力供独立 Caddy 子进程继承。已有 bridge 配置不自动迁移，增加显式外部入口声明和端口变量。
+
+界面加入部署说明、外部访问地址、未声明端口的发布配置、“保存并应用”与“仅保存草稿”、目标 HEAD 连接测试，以及基于已应用快照和 Caddy 实际配置的监听状态。测试目标时不跟随重定向、不使用环境代理、不跳过 HTTPS 证书校验；HTTP 错误状态与网络连接失败分开呈现。
+
+本机通过：`go test ./...`（NETLITE_TEST_CADDY 指向真实 Caddy）、`go vet ./...`、前端 65 项测试及生产构建、Compose 配置校验、Linux 入口脚本语法检查。扩展 `scripts/smoke.ps1` 已验证目标测试鉴权、HTTP/HTTPS、监听状态、占用端口报错、失败后原代理继续工作且检查点不变、重启恢复已应用配置并保留草稿。
+
+新增 `scripts/smoke-host.py` 并接入发布前 CI，检查 NetLite/Caddy 的 UID/GID、能力集合与 no-new-privileges、真实 80/443、容器不重建时新增端口及正常退出。本机 Docker Linux 引擎未运行，镜像构建及 host/bridge 容器烟测未执行；上述容器行为仍需 CI / Linux VPS 验证。未进行 VPS / ARM / fnOS 实机、真实 DNS 或公网 ACME 验证。未构建或发布新镜像与 FPK。

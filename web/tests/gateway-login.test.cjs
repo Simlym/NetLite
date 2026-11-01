@@ -23,6 +23,7 @@ function mountApp(responses){
     './application-path':loadModule('application-path.ts'),
     './api-response':loadModule('api-response.ts'),
     './proxy-address':loadModule('proxy-address.ts'),
+    './route-access':loadModule('route-access.ts'),
     vue:{ref:value=>({value}),computed:fn=>({get value(){return fn()}}),onMounted:fn=>mounted.push(fn),nextTick:async()=>{},watch:()=>{}}
   }
   const sandbox={exports:{},URLSearchParams,AbortSignal,Error,crypto:webcrypto,window:{location:{pathname:'/app/netlite/',search:''}},

@@ -6,7 +6,7 @@ New-Item -ItemType Directory -Path "$root/bin",$data -Force | Out-Null
 go build -o bin/netlite.exe ./cmd/netlite
 if($LASTEXITCODE){throw 'Build failed'}
 $exe=Join-Path $root 'bin/netlite.exe';$caddy=Join-Path $root 'tools/caddy.exe'
-$process=$null;$upstream=$null
+$process=$null;$upstream=$null;$blockedListener=$null
 function Start-NetLite {
  Start-Process -FilePath $exe -ArgumentList @('--auth-mode','token','--listen','127.0.0.1:19780','--data',('"'+$data+'"'),'--web',('"'+$root+'/web/dist"'),'--caddy',('"'+$caddy+'"'),'--caddy-admin','127.0.0.1:21190') -WindowStyle Hidden -PassThru -RedirectStandardOutput "$data/stdout.log" -RedirectStandardError "$data/stderr.log"
 }
@@ -44,6 +44,28 @@ try {
  $secure=$null
  for($i=0;$i -lt 30;$i++){try{$secure=Invoke-WebRequest 'https://localhost:19444/secure' -SkipCertificateCheck;break}catch{Start-Sleep -Milliseconds 500}}
  if(!$secure -or $secure.Content -notmatch 'upstream:/secure'){throw 'HTTPS proxy failed'}
+ $probe=Invoke-RestMethod 'http://127.0.0.1:19780/api/proxy/test-target' -Headers $headers -Method Post -ContentType 'application/json' -Body '{"upstream":"http://127.0.0.1:19881"}'
+ if(!$probe.reachable -or $probe.http_status -ne 200){throw 'Target connection test failed'}
+ try{Invoke-RestMethod 'http://127.0.0.1:19780/api/proxy/test-target' -Method Post -ContentType 'application/json' -Body '{"upstream":"http://127.0.0.1:19881"}' | Out-Null;throw 'Unauthenticated probe allowed'}catch{if($_.Exception.Response.StatusCode -ne 401){throw}}
+ $state=Invoke-RestMethod 'http://127.0.0.1:19780/api/status' -Headers $headers
+ if($state.proxy.listening_ports -notcontains 19081 -or $state.proxy.listening_ports -notcontains 19444 -or $state.proxy.applied_routes.Count -ne 2){throw 'Applied listeners not reported'}
+ $appliedRevision=$state.proxy.applied_revision
+ # Reserve the same wildcard/dual-stack address that Caddy uses. A loopback-only
+ # IPv4 fixture can coexist with an IPv6 listener on Windows and is not enough.
+ $blockedListener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::IPv6Any,19082)
+ $blockedListener.Server.DualMode=$true
+ $blockedListener.Server.ExclusiveAddressUse=$true
+ $blockedListener.Start()
+ # A rejected load must preserve
+ # both the active proxy and its persisted checkpoint, while retaining the draft.
+ $saved.routes+=@{id='occupied';domain='occupied.localhost';scheme='http';port=19082;upstream='http://127.0.0.1:19881';certificate_id='';enabled=$true}
+ $saved=Invoke-RestMethod 'http://127.0.0.1:19780/api/config' -Headers $headers -Method Put -ContentType 'application/json' -Body ($saved | ConvertTo-Json -Depth 10)
+ try{Invoke-RestMethod 'http://127.0.0.1:19780/api/proxy/apply' -Headers $headers -Method Post | Out-Null;throw 'Occupied port accepted'}catch{if($_.Exception.Response.StatusCode -ne 422){throw};$errorBody=$_.ErrorDetails.Message | ConvertFrom-Json;if($errorBody.error -notmatch '端口已被占用|权限不足'){throw ('Missing actionable occupied-port error: '+$errorBody.error)}}
+ $state=Invoke-RestMethod 'http://127.0.0.1:19780/api/status' -Headers $headers
+ if($state.proxy.applied_revision -ne $appliedRevision -or $state.proxy.applied_routes.Count -ne 2){throw 'Rejected apply changed checkpoint'}
+ $plain=Invoke-WebRequest 'http://127.0.0.1:19081/after-rejected-apply' -Headers @{Host='plain.localhost'}
+ if($plain.Content -notmatch 'upstream:/after-rejected-apply'){throw 'Rejected apply interrupted the working proxy'}
+ $saved.routes=@($saved.routes | Where-Object {$_.id -ne 'occupied'})
  $saved.routes[0].enabled=$false
  Invoke-RestMethod 'http://127.0.0.1:19780/api/config' -Headers $headers -Method Put -ContentType 'application/json' -Body ($saved | ConvertTo-Json -Depth 10) | Out-Null
  Stop-NetLite
@@ -52,6 +74,6 @@ try {
  if($plain.Content -notmatch 'upstream:/restart'){throw 'Applied configuration not restored'}
  $restored=Invoke-RestMethod 'http://127.0.0.1:19780/api/config' -Headers $headers
  if($restored.routes[0].enabled){throw 'Draft configuration not persisted'}
- Write-Host 'PASS: authentication, revision conflict, HTTP proxy, HTTPS internal CA, restart restores applied config and preserves draft.'
-} finally {Stop-NetLite;if($upstream -and !$upstream.HasExited){Stop-Process -Id $upstream.Id}}
+ Write-Host 'PASS: authentication, revision conflict, HTTP/HTTPS, target probe, listener status, occupied-port diagnostics preserve active config and checkpoint, restart restores applied config and preserves draft.'
+} finally {Stop-NetLite;if($blockedListener){$blockedListener.Stop()};if($upstream -and !$upstream.HasExited){Stop-Process -Id $upstream.Id}}
 
