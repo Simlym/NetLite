@@ -6,7 +6,15 @@ NetLite 镜像包含内嵌前端的 Go 后端和标准 Caddy；DDNS、公共 DNS
 
 ## Linux VPS 推荐部署
 
-首次部署下载 `compose.host.yaml` 和 `deploy/docker.env.example`（保存为 `.env`），设置已发布的镜像版本后启动：
+首次部署需要 Docker Engine 和 Compose v2。先准备部署文件，并确认目标镜像已成功发布：
+
+```bash
+mkdir -p ~/netlite && cd ~/netlite
+curl -fL https://raw.githubusercontent.com/Simlym/NetLite/main/compose.host.yaml -o compose.host.yaml
+curl -fL https://raw.githubusercontent.com/Simlym/NetLite/main/deploy/docker.env.example -o .env
+# 编辑 .env 的 NETLITE_IMAGE，推荐固定已经验收的版本或 sha 标签
+```
+
 
 ```bash
 docker compose -f compose.host.yaml up -d --wait
@@ -33,7 +41,7 @@ host 模板以 root 启动短暂的 `setpriv` 引导，授予降权所需的 SET
 
 构建顺序：复用现有 CI 的 Linux / Windows、Go 测试 / vet、真实 Caddy 代理烟测、前端测试 / 构建 → Linux amd64 镜像构建及容器烟测 → amd64/arm64 镜像构建发布。容器烟测覆盖非 root、只读根文件系统、管理员初始化与登录、HTTP/HTTPS 内部 CA、原生 DDNS、正常退出、容器重建后的账号/密钥/CA/草稿/已应用配置恢复。测试仅用虚构 DNS 凭据和本地无 IP 接口，不修改公网 DNS。ARM 当前只做交叉编译，仍需 ARM 实机验收。
 
-首次启用：
+首次发布与权限核验（已发布过的仓库可按需核对）：
 
 1. 将改动提交并推送到 GitHub。仓库需允许 Actions 运行。`ci.yml` 在既有检查通过后调用容器工作流；也可手动运行 Container（会执行镜像内置测试和容器烟测）。
 2. 工作流使用内置 `GITHUB_TOKEN` 和 `packages: write` 推送 GHCR，无需额外配置发布用 PAT。若已有同名包，检查包的 Manage Actions access，确保本仓库有写入权限。
@@ -46,7 +54,7 @@ host 模板以 root 启动短暂的 `setpriv` 引导，授予降权所需的 SET
 
 前置：安装并启动 Docker Engine 和 Compose v2。可参考 [Docker 官方 Ubuntu 安装说明](https://docs.docker.com/engine/install/ubuntu/)。以下命令假设当前用户已获准访问 Docker；否则按本机权限使用 `sudo docker`。
 
-首次镜像发布成功后，在 Ubuntu 下载部署文件即可，不需要克隆源码或现场构建：
+确认要使用的镜像标签已发布且具有拉取权限后，在 Ubuntu 下载部署文件即可，不需要克隆源码或现场构建：
 
 ```bash
 mkdir -p ~/netlite
@@ -117,28 +125,31 @@ host 网络共享宿主机网络空间，`127.0.0.1` 即宿主机；不使用 `p
 
 `netlite-data` 命名卷挂载到 `/data`，保存数据库（含管理员账号与会话）、初始化码、`proxy-applied.json`、NetLite 证书、日志和 DNS 加密主密钥。Docker 首次创建卷时沿用镜像中 `/data` 的属主 `10001:10001`；容器以该非 root 用户运行。若改用宿主机目录挂载，先创建目录并设为 `10001:10001`、权限 `0700`，不要给目录开放所有用户写权限。
 
-停止服务后备份整个数据目录，避免运行中复制 SQLite 产生不一致。备份可能包含凭据，应作为敏感文件保管：
+停止服务后备份整个数据目录，避免运行中复制 SQLite 产生不一致。备份可能包含凭据，应作为敏感文件保管。
+
+**下列备份与恢复示例针对推荐的 host 模式。** 若实际使用 bridge 模式，应把每条 `docker compose -f compose.host.yaml` 改为 `docker compose -f compose.yaml`，不要混用两种配置或误操作其他 Compose 项目。
+
 
 ```bash
 cd ~/netlite
 mkdir -p backups
 chmod 700 backups
-docker compose stop
-(umask 077; docker compose run --rm --no-deps -T --entrypoint tar netlite -C /data -czf - . > backups/netlite-data.tgz)
-docker compose up -d --wait
+docker compose -f compose.host.yaml stop
+(umask 077; docker compose -f compose.host.yaml run --rm --no-deps -T --entrypoint tar netlite -C /data -czf - . > backups/netlite-data.tgz)
+docker compose -f compose.host.yaml up -d --wait
 ```
 
 确认备份命令成功、归档可读，再进行升级。备份文件名示例固定，实际使用时请另存日期版本。恢复到空数据卷的示例（会向该卷解压文件，务必确认目标卷）：
 
 ```bash
-docker compose stop
-docker compose run --rm --no-deps -T --entrypoint tar netlite -C /data -xzf - < backups/netlite-data.tgz
-docker compose up -d --wait
+docker compose -f compose.host.yaml stop
+docker compose -f compose.host.yaml run --rm --no-deps -T --entrypoint tar netlite -C /data -xzf - < backups/netlite-data.tgz
+docker compose -f compose.host.yaml up -d --wait
 ```
 
-升级：备份后修改 `.env` 的镜像标签，再执行 `docker compose pull && docker compose up -d --wait`。更换容器保留卷；`docker compose down` 默认保留卷，**不要执行 `docker compose down -v`，它会删除数据卷**。不要丢失 `/data/dns/master.key`，只有数据库无法解密 DNS 账号。
+升级：备份后修改 `.env` 的镜像标签。host 模式执行 `docker compose -f compose.host.yaml pull && docker compose -f compose.host.yaml up -d --wait`；bridge 模式执行 `docker compose pull && docker compose up -d --wait`。更换容器会保留数据卷；`docker compose down` 默认也保留卷，**不要执行 `docker compose down -v`，它会删除数据卷**。不要丢失 `/data/dns/master.key`，否则即便保存数据库也可能无法解密 DNS 账号。
 
-查看 Caddy 签发日志：`docker compose exec netlite tail -n 100 /data/caddy.log`。Compose 限制了容器标准输出日志大小，`caddy.log` 是数据卷内文件，仍需定期维护。健康检查检测管理 HTTP / HTTPS 服务；`unhealthy` 本身不会触发 Docker 重启。`restart: unless-stopped` 处理进程退出；Caddy 意外退出会使 NetLite 退出。
+排查代理运行错误可查看 Caddy 日志：host 模式使用 `docker compose -f compose.host.yaml exec netlite tail -n 100 /data/caddy.log`，bridge 模式使用 `docker compose exec netlite tail -n 100 /data/caddy.log`。**证书是由 NetLite 签发和续期的，Caddy 日志不是证书签发日志。** 申请问题应结合面板中的「HTTPS 证书」状态和错误信息检查。Compose 已限制容器标准输出日志大小；数据卷内的 `caddy.log` 仍需维护。健康检查检测管理 HTTP / HTTPS 服务；`unhealthy` 本身不会触发 Docker 重启。`restart: unless-stopped` 处理进程退出；Caddy 意外退出会使 NetLite 退出。
 
 ## 开发阶段推荐流程
 
@@ -187,6 +198,6 @@ NETLITE_IMAGE=netlite:smoke docker compose up -d --wait
 
 构建需要访问 npm、Go 模块、GitHub、Docker 镜像源。Caddy 版本与现有脚本保持一致；不构建或携带 ddns-go，也不依赖 Caddy DNS 插件。
 
-首次 GitHub Actions / GHCR 发布、Ubuntu 安装、ARM 实机以及真实 DNS / ACME 签发需分别验收。仓库中提供构建和自动检查流程，并不代表这些外部环境已完成验证。
+部署前应检查对应 GitHub Actions 与 GHCR 产物是否实际发布成功；Ubuntu/VPS、ARM64、fnOS 实机以及真实 DNS / ACME 签发还需分别验收。工作流配置和模拟测试不能替代目标环境的验证结果。
 
 参考：[GitHub 多架构镜像构建](https://docs.docker.com/build/ci/github-actions/multi-platform/)、[GHCR 认证与可见性](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。
