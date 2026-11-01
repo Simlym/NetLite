@@ -1,6 +1,6 @@
-# fnOS 登录态接入调研
+# fnOS 统一网关与管理员登录
 
-文档核验日期：2026-10-13；实现及本地验收日期：2026-10-14（Asia/Shanghai）。直接通过 HTTPS 读取飞牛官方开发文档。统一网关接入已实现；尚未执行 fnOS 实机或公网验证。
+本文说明当前 FPK 的统一网关实现与安全边界。官方文档核验与本地实现记录为 2026-10-13 至 2026-10-14（Asia/Shanghai）；**统一网关已实现，但真实 fnOS 设备上的 Socket 权限、登录态及升级仍待验收**。普通用户的安装步骤见 [FPK.md](FPK.md)。
 
 ## 结论
 
@@ -88,7 +88,7 @@ group=<已经核实的数字 GID>
 
 来源：[统一网关入口配置](https://developer.fnnas.com/docs/core-concepts/gateway-registration/)、[Manifest 端口声明](https://developer.fnnas.com/docs/core-concepts/manifest/)。
 
-## 实现范围与关键边界
+## 已实现的能力与安全边界
 
 1. **认证层**：实现 `fnos-gateway` Provider，校验完整、合法的身份 Header，扩展 Principal 的 UID、管理员标记和认证来源。所有管理 API 统一检查管理员权限。身份缺失或异常时拒绝访问，不自动降级为匿名模式。
 2. **监听与路由**：增加 Unix Socket 监听；外部页面、静态资源和 API 保持在 `/app/netlite/` 下，可在服务边界校验并剥离前缀后复用现有路由。Socket 启停清理不能误删其他路径。
