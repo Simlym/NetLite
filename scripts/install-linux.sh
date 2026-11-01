@@ -10,8 +10,11 @@ umask 077
 read -r -p '管理端口 [18780]：' port
 port=${port:-18780}
 [[ "$port" =~ ^[0-9]{4,5}$ && "$port" -ge 1024 && "$port" -le 65535 && "$port" != 20190 && "$port" != 18082 ]] || { echo '端口须为 1024–65535，不能使用 20190 或 18082' >&2; exit 1; }
-read -r -p '访问方式：1 局域网/网络访问，2 仅本机 [1]：' access
+read -r -p '访问方式：1 允许远程访问（需安全组限制并启用 HTTPS），2 仅本机 [1]：' access
 case ${access:-1} in 1) listen="0.0.0.0:$port" ;; 2) listen="127.0.0.1:$port" ;; *) echo '请选择 1 或 2' >&2; exit 1 ;; esac
+if [[ "${access:-1}" == 1 ]]; then
+ echo '注意：首次访问为明文 HTTP。建议在安全组/防火墙仅放行可信来源，初始化后尽快在面板设置启用 HTTPS。'
+fi
 if command -v ss >/dev/null && ss -H -ltn "sport = :$port" | read -r _; then echo '管理端口已占用，请更换端口' >&2; exit 1; fi
 read -r -p '管理员用户名 [admin]：' username
 username=${username:-admin}
@@ -58,7 +61,7 @@ else
   [[ "$address" != *:* ]] || address="[$address]"
   printf '访问地址：http://%s:%s\n' "$address" "$port"
  done
- echo '外部可达性尚未验证；云服务器需开放安全组，系统防火墙需允许管理端口。公网使用请启用 HTTPS。'
+ echo '外部可达性尚未验证；如需远程访问须配置云安全组与系统防火墙。首次 HTTP 访问请限制来源，完成证书配置后尽快切换面板 HTTPS。'
 fi
 printf '管理员：%s\n' "$username"
 [[ "$temporary" == false ]] || printf '临时密码：%s\n首次登录后请修改密码。\n' "$password"

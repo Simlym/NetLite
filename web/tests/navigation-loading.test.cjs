@@ -214,3 +214,33 @@ test('fast requests never show loading feedback and slow requests delay it',asyn
   await vue.nextTick()
   assert.equal(x.state.showFeedback.value,false)
 })
+
+test('remote HTTP local administration warns users, but HTTPS and fnOS gateway do not',()=>{
+  const make=(protocol,hostname)=>script('App.vue',{},'insecureManagement,managementAccessLabel,authMode',{
+    window:{location:{pathname:'/',search:'',protocol,hostname}}
+  }).state
+  const remote=make('http:','198.51.100.12')
+  assert.equal(remote.insecureManagement.value,true)
+  assert.equal(remote.managementAccessLabel.value,'HTTP 管理连接')
+  const local=make('http:','127.0.0.1')
+  assert.equal(local.insecureManagement.value,false)
+  const secure=make('https:','panel.example.com')
+  assert.equal(secure.insecureManagement.value,false)
+  assert.equal(secure.managementAccessLabel.value,'HTTPS 管理连接')
+  remote.authMode.value='fnos-gateway'
+  assert.equal(remote.insecureManagement.value,false)
+  assert.equal(remote.managementAccessLabel.value,'飞牛管理入口')
+  const template=fs.readFileSync(path.join(__dirname,'../src/App.vue'),'utf8')
+  assert.match(template,/class="access-warning login-access-warning"/)
+  assert.match(template,/class="access-warning workspace-access-warning"/)
+})
+
+test('host remote management default does not weaken bridge default',()=>{
+  const root=path.join(__dirname,'../..')
+  const host=fs.readFileSync(path.join(root,'compose.host.yaml'),'utf8')
+  const bridge=fs.readFileSync(path.join(root,'compose.yaml'),'utf8')
+  const env=fs.readFileSync(path.join(root,'deploy/docker.env.example'),'utf8')
+  assert.match(host,/NETLITE_MANAGEMENT_BIND:-0\.0\.0\.0/)
+  assert.match(bridge,/NETLITE_MANAGEMENT_BIND:-127\.0\.0\.1/)
+  assert.doesNotMatch(env,/^NETLITE_MANAGEMENT_BIND=/m)
+})

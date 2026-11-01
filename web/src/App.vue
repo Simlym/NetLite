@@ -15,6 +15,8 @@ type Route={id:string;name?:string;domain:string;port:number;scheme:string;upstr
 type Cert={id:string;domains:string[];mode:string;email:string;staging:boolean;account_id?:string;renew_before_days?:number}
 type Config={revision:number;routes:Route[];certificates:Cert[]}
 const token=ref(''),logged=ref(false),busy=ref(false),message=ref(''),tab=ref('routes'),status=ref<{proxy?:ProxyState;deployment?:NetworkInfo}>({})
+const insecureManagement=computed(()=>authMode.value==='local'&&window.location.protocol==='http:'&&!['localhost','127.0.0.1','::1','[::1]'].includes(window.location.hostname.toLowerCase()))
+const managementAccessLabel=computed(()=>authMode.value==='fnos-gateway'?'飞牛管理入口':window.location.protocol==='https:'?'HTTPS 管理连接':insecureManagement.value?'HTTP 管理连接':'本机管理面板')
 const authMode=ref(applicationBase(window.location.pathname)==='/'?'local':'fnos-gateway'),initialized=ref(true),username=ref('admin'),password=ref(''),setupCode=ref(''),remember=ref(false),showPassword=ref(false),mustChange=ref(false),newPassword=ref(''),authReady=ref(false),csrf=ref(''),preserveDraft=ref(false)
 const config=ref<Config>({revision:0,routes:[],certificates:[]})
 const route=ref<Route>(newRoute()),cert=ref<Cert>(newCert()),editing=ref(false)
@@ -58,6 +60,7 @@ const navigation=[
   {key:'engine',title:'代理引擎',description:'查看代理运行状态、校验配置与排查问题。',icon:'M4 4h16v6H4V4ZM4 14h16v6H4v-6ZM8 7h.01M8 17h.01M12 7h5M12 17h5'}]}
 ]
 const currentPage=computed(()=>navigation.flatMap(group=>group.items).find(item=>item.key===tab.value)!)
+async function openSecuritySettings(){await navigate(config.value.certificates.length?'panel':'certificates')}
 async function navigate(key:string){if(busy.value)return;if(key==='panel'&&authMode.value==='token'){message.value='当前为兼容令牌模式；面板设置在本地账号模式下提供。';return}tab.value=key;editing.value=false;message.value='';await loadPage(false,false)}
 async function loadPage(keepDraft=false,force=true){
   const request=++pageRequest,key=tab.value
@@ -137,6 +140,7 @@ onMounted(async()=>{if(new URLSearchParams(window.location.search).get('panel')=
 <template>
  <main :class="logged?'app-shell':'login-shell'">
  <template v-if="!logged"><div class="brand login-brand"><span class="logo">N</span><div><h1>NetLite</h1><p>让网络管理轻一点</p></div></div><section class="login card"><span class="eyebrow">管理面板</span><h2>{{mustChange?'设置你的新密码':initialized?'欢迎使用 NetLite':'初始化管理员'}}</h2><p class="muted">{{mustChange?'请替换临时密码后继续使用。':'登录后，管理服务访问、域名解析与 HTTPS 证书。'}}</p>
+ <div v-if="authReady&&insecureManagement" class="access-warning login-access-warning" role="note"><strong>当前使用未加密的 HTTP</strong><p>密码和初始化码可能在传输中被截获。首次配置请在可信网络操作，或先用安全组/防火墙限制访问来源；登录后尽快启用面板 HTTPS。</p></div>
  <template v-if="authReady&&authMode==='fnos-gateway'"><p class="muted">请使用飞牛管理员账号登录飞牛，再从应用入口打开 NetLite。</p><button :disabled="busy" @click="reloadIdentity">重新检查登录状态</button></template>
  <form v-else-if="authReady" @submit.prevent="mustChange?changeInitialPassword():login()">
   <template v-if="authMode==='token'"><label>管理令牌<input v-model="token" type="password" autocomplete="current-password" required></label><p class="muted">fnOS 兼容模式：令牌位于应用私有目录 admin-token。</p></template>
@@ -152,7 +156,8 @@ onMounted(async()=>{if(new URLSearchParams(window.location.search).get('panel')=
   <div class="sidebar-bottom"><div class="engine-summary"><span :class="['dot',status.proxy?.running?'on':'']"></span><span>代理{{status.proxy?.running?'运行中':'未运行'}}</span></div><div class="sidebar-meta"><span>{{authMode==='fnos-gateway'?username+' · 飞牛管理员':'v0.1 · 本地管理'}}</span><button v-if="authMode!=='fnos-gateway'" class="text-button" @click="logout">退出登录</button><button v-else class="text-button" @click="reloadIdentity">刷新身份</button></div></div>
  </aside>
  <div class="workspace">
- <header class="page-header"><div><p class="breadcrumb">{{tab==='engine'||tab==='dnsaccounts'||tab==='panel'?'配置与维护':'服务管理'}} <span>/</span> {{currentPage.title}}</p><h2>{{tab==='ddns'?'动态域名（DDNS）':currentPage.title}}</h2><p class="page-description">{{currentPage.description}}</p></div><span v-if="busy" class="loading-spinner" role="status" aria-label="正在处理"></span><span v-else class="local-badge"><span class="dot on"></span>本地管理面板</span></header>
+ <header class="page-header"><div><p class="breadcrumb">{{tab==='engine'||tab==='dnsaccounts'||tab==='panel'?'配置与维护':'服务管理'}} <span>/</span> {{currentPage.title}}</p><h2>{{tab==='ddns'?'动态域名（DDNS）':currentPage.title}}</h2><p class="page-description">{{currentPage.description}}</p></div><span v-if="busy" class="loading-spinner" role="status" aria-label="正在处理"></span><span v-else class="local-badge"><span :class="['dot',{on:!insecureManagement}]"></span>{{managementAccessLabel}}</span></header>
+ <section v-if="insecureManagement" class="access-warning workspace-access-warning" aria-label="管理连接安全提示"><div><strong>管理面板正在使用 HTTP</strong><p>当前连接未加密。建议限制 18780 端口的访问来源，先在「HTTPS 证书」申请证书，再到「面板设置」切换 HTTPS。确认后 HTTP 将不再接收管理操作。</p></div><button class="secondary" :disabled="busy" @click="openSecuritySettings">{{config.certificates.length?'配置面板 HTTPS':'去申请证书'}}</button></section>
  <div v-if="message&&(tab!=='routes'||messageError||!savedChanges)" :class="['message',{error:messageError,'route-toast':tab==='routes'}]" :role="messageError?'alert':'status'"><span>{{message}}</span><button class="icon-button" aria-label="关闭提示" @click="message=''">×</button></div>
 
  <PageState :loading="pageLoading" :loaded="Boolean(pageLoaded[tab])" :error="pageError" @retry="loadPage()">

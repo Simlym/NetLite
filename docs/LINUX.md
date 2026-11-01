@@ -6,7 +6,7 @@ Linux 发布包包含 NetLite、独立标准 Caddy、安装脚本和内嵌 Vue �
 ## 安装
 
 解压对应架构发布包后，执行 `sudo bash install.sh`。安装器会询问端口、网络/仅本机访问方式、管理员用户名和密码；密码留空时生成临时密码，在安装完成时显示，首次登录必须更换。
-安装器创建 netlite 系统用户，将程序放在 `/opt/netlite/bin`、私有数据放在 `/var/lib/netlite`，注册并启动 systemd 服务。访问地址在启动检查通过后显示。安装器不自动修改防火墙或云安全组；网络访问必须允许管理端口。公网长期访问应启用 HTTPS。
+安装器创建 netlite 系统用户，将程序放在 `/opt/netlite/bin`、私有数据放在 `/var/lib/netlite`，注册并启动 systemd 服务。安装器的「网络访问」选项默认监听 `0.0.0.0`，允许远程连接；也可选择「仅本机」使用 `127.0.0.1`。启动后显示访问地址。**安装器不会自动修改系统防火墙或云安全组**。首次 HTTP 初始化时建议仅允许可信来源 IP，启用正式面板 HTTPS 后再考虑长期远程访问。
 
 systemd 模板通过 `AmbientCapabilities=CAP_NET_BIND_SERVICE` 和对应的能力边界，使 netlite 用户及独立 Caddy 子进程可以监听 80/443，不需要 root 运行。已有部署需更新 service 文件、执行 `sudo systemctl daemon-reload` 并重启 NetLite 后才获得该权限；直接以普通用户执行二进制不保证能绑定低端口。不会修改其他 Web 服务或宿主机端口阈值。
 

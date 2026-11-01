@@ -18,6 +18,8 @@
 
 `example.com` 是文档示例域名，不能直接拿来申请证书。请使用自己可控制解析的真实域名。
 
+**VPS 首次管理面板访问：** Docker `host` 模式默认监听 `0.0.0.0:18780`，在服务器安全组允许指定来源 IP 后可以直接打开 `http://服务器IP:18780`，无需 SSH 隧道。通过服务器上的 `docker compose -f compose.host.yaml exec --user 10001:10001 netlite /opt/netlite/bin/netlite info --data /data` 取得初始化码。初次使用 HTTP 时密码和初始化码可能被截获，请限制访问来源并使用可信网络；申请正式证书后到「面板设置」切换为 `https://管理域名:18780`。参见 [Docker VPS 部署](DOCKER.md)。
+
 开始前，确认：NAS 上的 Jellyfin 在局域网内可以访问；你能修改域名的 DNS 记录；家庭路由器有可用的公网入站连接，并允许做端口映射。**如果运营商使用 CGNAT 或入站连接被封锁，DDNS 并不能解决公网访问问题，NetLite 也不是内网穿透工具。**
 
 使用 Linux VPS 时一般不需要家庭路由器映射，但仍要放行安全组/防火墙；原生 Linux 或 Docker `host` 在具备权限、端口未被占用时可直接监听 443。
@@ -107,6 +109,6 @@ Linux / VPS `host` 部署若直接监听 TCP 443，则无需“公网 443 → �
 | FPK 装好但打不开管理界面 | fnOS 是否支持统一网关、是否使用管理员账号、网关 Unix Socket 权限；参见 [FPK 说明](FPK.md) |
 | 升级后凭据或证书丢失 | 是否完整保留数据库、`dns/master.key`、证书及已应用代理快照；参见 [Docker 备份](DOCKER.md) |
 
-**安全提示：** 请勿公开 DNS API Key、管理员初始化码或私钥。不要将尚未启用 HTTPS 的管理入口直接开放到公网；升级前完整备份应用数据目录。
+**安全提示：** 请勿公开 DNS API Key、管理员初始化码或私钥。VPS host 模式默认允许远程连接；**初次 HTTP 配置阶段应以安全组/防火墙限制访问来源，并尽快启用管理 HTTPS**。升级前完整备份应用数据目录。
 
 返回 [README / 下载与安装](../README.md#下载安装) · [Docker 部署](DOCKER.md) · [Linux 部署](LINUX.md)

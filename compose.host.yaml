@@ -1,5 +1,8 @@
 # Standalone alternative: docker compose -f compose.host.yaml up -d
 # Recommended for Linux VPS; do not combine with compose.yaml.
+# Host mode allows remote management by default. Initial HTTP is unencrypted:
+# restrict TCP 18780 in your firewall/security group until HTTPS is enabled.
+# Override NETLITE_MANAGEMENT_BIND=127.0.0.1 to require SSH/VPN.
 services:
   netlite:
     image: ${NETLITE_IMAGE:-ghcr.io/simlym/netlite:main}
@@ -12,7 +15,7 @@ services:
       NETLITE_NETWORK_MODE: host
     command:
       - --listen
-      - "${NETLITE_MANAGEMENT_BIND:-127.0.0.1}:18780"
+      - "${NETLITE_MANAGEMENT_BIND:-0.0.0.0}:18780"
       - --data
       - /data
       - --caddy

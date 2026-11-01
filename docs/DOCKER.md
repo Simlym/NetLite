@@ -20,7 +20,19 @@ curl -fL https://raw.githubusercontent.com/Simlym/NetLite/main/deploy/docker.env
 docker compose -f compose.host.yaml up -d --wait
 ```
 
-此方式不需要 `ports` 映射。网页 HTTPS 默认端口 443、HTTP 默认 80，其他入口端口直接在网页配置。管理默认只监听宿主机 `127.0.0.1:18780`；可通过 SSH 转发访问。宿主机 443 必须空闲，安全组和防火墙仍需允许访问；NetLite 不会停止已有服务来腾出端口。
+此方式不需要 `ports` 映射。网页 HTTPS 默认端口 443、HTTP 默认 80，其他业务入口端口直接在网页配置。
+
+**VPS host 模式的管理面板默认监听 `0.0.0.0:18780`**（所有 IPv4 接口）。在云安全组和系统防火墙允许访问后，可以直接打开 `http://服务器公网IP:18780`。**首次管理连接为明文 HTTP**，建议在云安全组中先将 TCP 18780 的入站来源限制为自己的 IP；NetLite 不会自动修改安全组或防火墙。
+
+在服务器获取首次初始化码，并在网页创建管理员：
+
+```bash
+docker compose -f compose.host.yaml exec --user 10001:10001 netlite /opt/netlite/bin/netlite info --data /data
+```
+
+然后在「DNS 账号」设置必要凭据，在「HTTPS 证书」中申请覆盖管理域名的正式证书，再进入「面板设置」检查并启用管理 HTTPS。新地址是 `https://管理域名:18780`，需要在新地址登录并确认；两分钟内未确认将自动回滚。成功确认后 HTTP 不再接受管理操作，可选 GET 自动跳转。**管理 HTTPS 仍使用 18780 端口，不会自动改为 443**。
+
+若希望管理面板仅供本机访问，在 `.env` 显式指定 `NETLITE_MANAGEMENT_BIND=127.0.0.1`，再通过 SSH 或 VPN 访问。宿主机业务端口（如 443）必须空闲，安全组和防火墙仍需允许业务访问；NetLite 不会停止已有服务来腾出端口。
 
 例如 `xq.teanap.top → http://127.0.0.1:8080`：在网页选择证书，填写 HTTPS 443、目标 HTTP / 127.0.0.1 / 8080，点击“测试目标连接”后“保存并应用”。host 模式的 127.0.0.1 就是 VPS 宿主机。证书需先就绪；公共证书建议 DNS-01。HTTP-01 仍需要公网 80 到独立 18082 验证监听器的转发，业务 80 不会自动转交验证请求。
 
@@ -71,7 +83,7 @@ docker compose logs --tail=100 netlite
 
 稳定发布后，可将上述部署文件下载地址的 `main` 换为同一版本 Git 标签，保持镜像与配置一致。
 
-默认管理端口只发布在 Ubuntu 的 `127.0.0.1:18780`。在自己的电脑建立 SSH 隧道：
+**bridge 模式默认仍仅将管理端口发布到宿主机 `127.0.0.1:18780`**，与 host 模式不同。可以在自己的电脑建立 SSH 隧道：
 
 ```bash
 ssh -N -L 18780:127.0.0.1:18780 用户名@Ubuntu地址
@@ -84,7 +96,7 @@ cd ~/netlite
 docker compose exec netlite /opt/netlite/bin/netlite info --data /data
 ```
 
-需要可信局域网直接管理时，在 `.env` 设置 `NETLITE_MANAGEMENT_BIND=Ubuntu的局域网IPv4地址` 后执行 `docker compose up -d`。不要将管理端口映射到公网；Caddy Admin `20190` 始终不发布。镜像初始使用 HTTP，可在面板设置启用 HTTPS，详见 [Linux 面板说明](LINUX.md)。健康检查兼容同端口 HTTP / HTTPS；HTTPS 探测仅限容器回环地址并跳过证书信任验证。公网管理应通过 HTTPS / SSH / VPN 等受控入口。
+需要可信局域网直接管理时，在 `.env` 设置 `NETLITE_MANAGEMENT_BIND=Ubuntu的局域网IPv4地址` 后执行 `docker compose up -d`。若明确设置为 `0.0.0.0`，管理端口会绑定宿主机所有 IPv4 接口，必须考虑初次 HTTP 的明文风险并限制来源；Caddy Admin `20190` 始终不发布。镜像初始使用 HTTP，可在面板设置启用 HTTPS，详见 [Linux 面板说明](LINUX.md)。健康检查兼容同端口 HTTP / HTTPS；HTTPS 探测仅限容器回环地址并跳过证书信任验证。公网管理应通过 HTTPS / SSH / VPN 等受控入口。
 
 ## bridge 网络：端口与上游地址
 
@@ -119,7 +131,7 @@ docker compose -f compose.host.yaml up -d --wait
 
 迁移前备份数据并确认新镜像版本。已有规则保留原监听端口，不自动改成 80/443；迁移后可在网页编辑。bridge 中的 `host.docker.internal` 不是 host 模式的内置域名，宿主机目标改用 127.0.0.1；Docker 服务名也不再通过原 bridge DNS 解析，需改为宿主机可访问的地址。迁移不会删除卷或修改其他服务。
 
-host 网络共享宿主机网络空间，`127.0.0.1` 即宿主机；不使用 `ports`。默认管理监听仍为 `127.0.0.1:18780`。Caddy Admin 需要宿主机 `127.0.0.1:20190` 空闲，占用时应用拒绝启动。HTTP-01 在验证期间监听宿主机 `0.0.0.0:18082`，届时也需空闲；使用公网 HTTP-01 时还需配置公网 TCP 80 到该端口的转发。代理新增端口还需检查宿主机端口冲突和防火墙。本示例面向 Linux，不作为 Windows/macOS 默认方案。
+host 网络共享宿主机网络空间，`127.0.0.1` 即宿主机；不使用 `ports`。新版本的 `deploy/docker.env.example` 将管理绑定参数留为注释，因此 host 默认网络监听、bridge 默认回环；**旧 `.env` 如仍有 `NETLITE_MANAGEMENT_BIND=127.0.0.1` 会覆盖新默认值**，迁移前需要自行核对。host 管理入口默认监听 `0.0.0.0:18780`，但旧 `.env` 中的显式设置仍会生效。Caddy Admin 需要宿主机 `127.0.0.1:20190` 空闲，占用时应用拒绝启动。HTTP-01 在验证期间监听宿主机 `0.0.0.0:18082`，届时也需空闲；使用公网 HTTP-01 时还需配置公网 TCP 80 到该端口的转发。代理新增端口还需检查宿主机端口冲突和防火墙。本示例面向 Linux，不作为 Windows/macOS 默认方案。
 
 ## 数据、备份与升级
 

@@ -74,11 +74,11 @@ docker compose -f compose.host.yaml up -d --wait
 docker compose -f compose.host.yaml ps
 ~~~
 
-默认管理面板仅监听服务器的 `127.0.0.1:18780`。如在远程 VPS 部署，在**自己的电脑**建立 SSH 隧道后打开 [http://127.0.0.1:18780](http://127.0.0.1:18780)：
+**VPS host 模式默认允许远程访问管理面板**：NetLite 监听 `0.0.0.0:18780`，无需 SSH 隧道。检查云安全组与防火墙后，打开 `http://你的服务器公网IP:18780`。
 
-~~~bash
-ssh -N -L 18780:127.0.0.1:18780 用户名@服务器地址
-~~~
+**首次连接是明文 HTTP。** 建议先在云安全组将 TCP 18780 的入站来源限制为自己的公网 IP，在可信网络完成初始化。随后在「HTTPS 证书」申请正式证书，再到「面板设置」启用 HTTPS；确认后使用 `https://管理域名:18780`，HTTP 不再接受管理操作。
+
+如需仅本机访问，可以在 `.env` 中显式设置 `NETLITE_MANAGEMENT_BIND=127.0.0.1`，再使用 SSH 隧道或 VPN。**通用 bridge 模式仍默认仅在宿主机回环地址发布管理端口。**
 
 首次打开面板时，在**服务器**运行下面的命令获取一次性初始化码，再按提示创建管理员：
 
@@ -88,7 +88,7 @@ docker compose -f compose.host.yaml exec --user 10001:10001 netlite \
   /opt/netlite/bin/netlite info --data /data
 ~~~
 
-镜像来自 `ghcr.io/simlym/netlite`，需确认所选标签已成功发布并可拉取。`host` 模式会占用宿主机上所配置的业务端口；不能直接把初始 HTTP 管理端口暴露到公网。需要 Docker `ports` 映射时可选用 `bridge` 方案。见 [Docker 部署、备份与升级](docs/DOCKER.md)。
+镜像来自 `ghcr.io/simlym/netlite`，需确认所选标签已成功发布并可拉取。`host` 模式会占用宿主机上所配置的业务端口。首次使用 HTTP 管理入口时应限制访问来源并尽快切换 HTTPS。需要 Docker `ports` 映射时可选用 `bridge` 方案。见 [Docker 部署、备份与升级](docs/DOCKER.md)。
 
 ### Linux 原生
 
@@ -126,7 +126,7 @@ Jellyfin：http://192.168.1.10:8096
 - **代理范围：** 目前支持 HTTP/HTTPS/WebSocket，不支持通用 TCP/UDP 转发。NetLite 管理独立的 Caddy，不修改或停止系统已有 Web 服务。
 - **端口边界：** fnOS FPK 业务入口使用 **1024–65535**，可将公网 443 通过路由器转发至 NAS 的高位端口；Linux 部署在权限允许时可直接监听 80/443。
 - **证书前提：** DNS-01 需要 DNS API 权限；HTTP-01 要求公网 TCP 80 可以转发到 NetLite 的专用验证端口 **18082**；内部 CA / Let's Encrypt 测试证书需要客户端额外信任。
-- **备份与安全：** 数据库、DNS 加密主密钥和证书私钥必须作为一套数据备份。请勿把管理面板 HTTP 入口直接暴露到公网，也不要使用 `docker compose down -v` 删除数据卷。
+- **备份与安全：** 数据库、DNS 加密主密钥和证书私钥必须作为一套数据备份。VPS host 模式默认监听所有 IPv4 接口；**初次 HTTP 配置期间限制访问来源、尽快切换 HTTPS**，也不要执行 `docker compose down -v` 删除数据卷。
 
 ## 文档与反馈
 
