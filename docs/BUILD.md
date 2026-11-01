@@ -2,7 +2,7 @@
 
 GitHub Actions 的 `CI` 工作流在推送 `main` / `codex/**` 分支、创建或更新 PR、推送 `v*` 标签时运行，也可在 Actions 页面通过 `Run workflow` 手动运行。
 
-Go 测试、race 检查、vet、前端测试与构建、Linux / Windows 代理 smoke 全部通过后，调用 `.github/workflows/build.yml` 构建部署包。不需要 DNS 凭据或额外的 GitHub Secrets。当前只上传 Actions Artifacts，不自动创建 Release 或部署到服务器。
+Go 测试、race 检查、vet、前端测试与构建、Linux / Windows 代理 smoke 全部通过后，调用 `.github/workflows/build.yml` 构建部署包。不需要 DNS 凭据或额外的 GitHub Secrets。Linux 与 FPK 安装包上传至 Actions Artifacts，**不自动创建 Release**。Docker 镜像由独立的 `container.yml` 在相关检查通过且满足发布条件时推送 GHCR；实际是否已发布请查看相应 Actions 运行与 Packages。
 
 ## 产物
 
@@ -53,6 +53,13 @@ bash scripts/build-linux.sh amd64
 
 Windows 的 FPK 构建需要 PowerShell 7、Go、Node.js、Python 3 及官方 Windows fnpack，按项目 README 使用 `scripts/build-caddy.ps1` 和 `scripts/build-fpk.ps1`。`-NetLiteBinary` 可传入已构建的同架构 Linux NetLite，`-SkipWebBuild` 复用现有 `web/dist`，否则脚本仍会自行编译。
 
-## 后续 Docker 扩展
+## Docker 镜像构建与发布
 
-`ci.yml` 负责检查并调用可复用的 `build.yml`，其中 `linux`、`fnos`、`collect` 分别负责编译、平台打包、汇总。后续可在 `build.yml` 添加依赖 `linux` 的 Docker job，复用同架构包中的 `bin/` 和 `web/`；镜像推送应限定在可信分支或标签，并仅对推送 job 授予 `packages: write`。当前尚未构建或推送 Docker 镜像。
+`ci.yml` 在 Go、前端与 Linux/Windows 回归通过后调用两个工作流：
+
+- `.github/workflows/build.yml`：`linux`、`fnos`、`collect` 负责 Linux 包、FPK 与安装包汇总。
+- `.github/workflows/container.yml`：先构建 amd64 镜像并执行容器 / host 网络烟测；符合发布条件时构建与推送 amd64、arm64 镜像至 `ghcr.io/simlym/netlite`。
+
+`main` 的成功发布会提供 `main` 和 `sha-<完整提交哈希>` 标签；`v*` 标签依发布策略提供版本镜像。PR 不发布。镜像实际可用性、GHCR 可见性和生产部署建议见 [Docker 部署](DOCKER.md)。
+
+**工作流文件的存在不等于镜像已经发布成功。** 使用前到 [GitHub Actions](https://github.com/Simlym/NetLite/actions) 核对运行结果；自动测试不代表 VPS / ARM64 / fnOS 或公网 DNS 实机已完成验收。
