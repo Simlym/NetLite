@@ -1,71 +1,56 @@
-> 历史验证记录：当前证书由 NetLite 管理，已移除 Caddy DNS 插件与证书自动化。当前架构见 CERTIFICATES.md，旧版验证结果不代表本次改造。
+# 当前验证范围与待验收项
 
-> 本文包含此前版本的验证记录。当前 DDNS 已内置，原 ddns-go 构建、二进制及测试结果不适用于当前引擎；当前验证要求见 DDNS-INTEGRATION.md。
+本文按**当前 main 分支的实现和测试入口**整理。它说明仓库配置了哪些测试、哪些场景仍需真实环境验证。**不代表本次文档修改重新执行了测试，也不代表每一次 CI 都已通过。**具体运行结果请查看 [GitHub Actions](https://github.com/Simlym/NetLite/actions)。
 
-# 本地验证记录
+目前实现是：Go 内置 DDNS、NetLite 独立管理 ACME / 内部 CA 证书、标准 Caddy 反向代理；Linux 默认本地管理员会话，fnOS FPK 使用统一网关，Docker 提供 host / bridge 两种模式。**已不再依赖 ddns-go 子进程或 Caddy DNS 插件。**
 
-DDNS 引擎适配阶段：本地 ddns-go v6.17.7 已构建 Windows/Linux amd64，Windows 版本检查通过；生成配置通过上游原生 YAML 解析验证。internal/ddnsgo 的配置校验与进程夹具测试、go test ./...、go vet ./... 通过。尚未接入运行时调度和界面，未进行真实 DNS 更新或 fnOS 实机验证。见 DDNS-INTEGRATION.md。
+## 自动化验证入口
 
-验证日期：2026-10-11，Windows amd64。
+| 检查入口 | 覆盖范围 | 不覆盖的部分 |
+| --- | --- | --- |
+| `go test ./...`、`go test -race ./internal/...`、`go vet ./...` | Go 业务逻辑、并发及静态检查 | 公网 DNS 与设备兼容性 |
+| `cd web && npm ci && npm test && npm run build` | 前端测试与生产构建 | 各浏览器、真实 fnOS 环境 |
+| `scripts/smoke-linux.py`、`scripts/smoke.ps1` | 标准 Caddy、HTTP/HTTPS、应用代理和重启流程 | 公网入站和真实 Let's Encrypt |
+| `scripts/smoke-panel.py`、`go test -tags webembed ./cmd/netlite` | 内嵌管理面板、账号认证与网关相关单测 | fnOS 网关实际运行身份与 Socket 权限 |
+| `scripts/smoke-container.py`、`scripts/smoke-host.py` | Docker 持久化、权限、进程退出、host 网络及低端口测试 | 实际 VPS 与 ARM64 原生运行 |
+| `.github/workflows/build.yml` | Linux/FPK amd64 与 arm64 产物、校验和、amd64 Linux 包烟测 | fnOS 实机安装与 ARM64 原生运行 |
+| `.github/workflows/container.yml` | amd64 容器烟测；满足条件时发布 amd64/arm64 镜像 | 镜像一定已发布、生产环境一定能启动 |
 
-| 项目 | 结果 |
-|---|---|
-| Go 后端与 SQLite | go test ./... 通过 |
-| 静态检查 | go vet ./... 通过 |
-| 真实 Caddy JSON | 内部 CA、HTTP/HTTPS、Cloudflare DNS-01 配置校验通过 |
-| 插件 | Windows / Linux Caddy 2.11.7 + caddy-dns/cloudflare 0.2.4 |
-| 集成验证 | 令牌鉴权、revision 冲突、HTTP、内部 CA HTTPS、草稿保存和已应用配置重启恢复通过 |
-| 浏览器 | 登录、代理保存/校验/应用、证书策略保存、停用 DDNS 保存通过 |
-| 前端 | TypeScript / Vite 构建通过；npm audit 0 vulnerabilities |
-| Linux 构建 | CGO_ENABLED=0 的 amd64 后端、Cloudflare 插件 Caddy 已构建 |
-| 生命周期 | 所有 cmd 脚本 Bash 语法检查通过；高位端口、包用户、数据私有 |
-| FPK | 官方 fnpack 1.2.3 构建成功，Windows 归档权限补正并回读核验 checksum |
+`ci.yml` 在推送、PR、版本标签与手动触发时协调这些检查。构建产物和 GHCR 镜像的实际可用性取决于**对应运行成功与发布权限**，不要仅依据工作流配置断言已经发布或验收。
 
-Cloudflare 行为通过模拟 HTTP API 测试：只 PATCH content，保留其他属性，错误域名/类型不会写入。DNS-01 真实 Caddy 校验使用合法格式假令牌，只检查配置，不进行实际 DNS 修改或签发。
+## 仍需手动完成的验收
 
-未验证：fnOS 实机安装、目录权限、启动/停止/升级/卸载；真实 Cloudflare DDNS、ACME DNS-01 泛域名签发和续期；ARM、Docker、DSM。安装包构建成功不等同于这些项通过。
+| 环境 | 待验证内容 |
+| --- | --- |
+| **fnOS 实机** | FPK 安装、登录态、管理员权限、Unix Socket 连接权限、重启、升级和卸载，以及系统 Web 服务不受影响 |
+| **ARM64 设备** | 实际启动、服务生命周期、Caddy 代理和数据持久化 |
+| **四家 DNS 服务商** | 真实账号权限、A/AAAA 更新、TXT 验证记录传播与精确清理 |
+| **公网 HTTPS** | Let's Encrypt 测试/正式签发、自动续期、公网 80/443、路由器和防火墙 |
+| **Linux / VPS Docker** | GHCR 拉取、host/bridge 实际端口、运行权限、重建升级和数据卷备份恢复 |
+| **数据恢复** | 数据目录与 `dns/master.key`、证书私钥、数据库及已应用配置整体恢复 |
 
-详见 FPK.md 的实机验收列表。界面截图：preview.png。
+自动化测试中使用的模拟服务商、虚构域名和内置测试 CA **不能代替真实服务商及公网证书的验收**。
 
-0.1.1 UI 验证：添加/编辑弹窗、保存自动关闭并更新列表、取消、Escape、首次输入框焦点、删除确认、证书与 DDNS 弹窗、Caddy 草稿/已应用查看均已浏览器验证。配置查看脱敏单元测试与 Go 测试、静态检查、代理集成测试、前端构建通过。新版 FPK 已生成；仍未进行 fnOS 实机升级验证。
+## 开发者本地测试
 
-代理规则表格验证：访问域名加粗、访问端口高亮、协议弱化、目标服务/状态/操作分列；桌面与 390px 窄屏横向滚动已验证，添加与编辑保留弹窗。前端类型检查及构建通过，FPK 已重新打包并验证归档权限和 checksum。
+```bash
+go test ./...
+go test -race ./internal/...
+go vet ./...
 
-协议列优化：访问域名、访问协议、访问端口、目标服务地址、状态、操作六列；HTTP/HTTPS 独立标签，目标显示完整 URL。前端构建和浏览器显示验证通过，FPK 已更新。
+cd web
+npm ci
+npm test
+npm run build
+```
 
-对称布局验证：弹窗访问端/目标端上下排列，每组协议、地址、端口；表格按相同顺序左右分组。浏览器已验证保存、重新编辑、目标 HTTPS 与 IPv6、访问 HTTPS 时显示证书选择、取消及 390px 弹窗。npm --prefix web test 的 4 项地址转换测试通过，覆盖 IPv6、默认端口与非法地址/端口；前端类型检查、构建及 FPK 归档核验通过。
+执行平台 smoke 前还需要准备相应 OS、构建后的 NetLite、真实标准 Caddy 或 Docker 环境；参见 [构建指南](BUILD.md) 与 [Docker 部署](DOCKER.md)。
 
-代理名称验证：name 可选，表格首列和添加/编辑弹窗显示名称 / 备注；浏览器验证中文名称保存、刷新、重新编辑和旧规则空名称。SQLite 重启持久化及缺少 name 的旧配置兼容测试通过；go test ./...、go vet ./...、前端构建、真实 Caddy 集成验证通过，FPK 已重新生成并核验。
+## 历史测试与当前版本的区别
 
-0.1.2 DDNS：账号与任务界面/API接入；加密、重开解密、不回显、空密钥保留、账号引用、启停、立即请求、新旧任务冲突测试通过；前端构建与代理 smoke 回归通过。浏览器验证真实 ddns-go 进程的启动、重启检查及停用，使用虚构凭据和无 IP 的本地接口；真实服务商、公网更新及 fnOS 安装未验收。
+0.1.1–0.1.4 阶段曾测试过 ddns-go 桥接、令牌鉴权和带 DNS 插件的 Caddy。**那些历史成功记录仅适用于当时的架构**，不能继续当作当前版本的验证结果。当前应按以下文档验收：
 
-
-0.1.3 DDNS 状态与界面：四厂商桥接模拟测试、事件校验与脱敏、子进程状态管道、IP 获取失败及停止保留结果测试通过；go test ./...、go vet ./...、npm.cmd run build 和代理 smoke 均通过。scripts/smoke-ddns-status.ps1 使用真实桥接引擎、虚构账号和不可返回 IP 的本地接口，验证检查时间、IP 获取失败、接口/更新请求均为零，不修改真实 DNS。
-
-列表精简为任务、域名、公网 IP、同步结果、最近检查、操作六列；账号折叠管理，次数/完整时间/响应码/启停/删除放入详情。浏览器使用模拟数据验证 A/AAAA、多域名、详情弹窗和账号展开；窄屏可横向滚动。docs/ddns-manager.png 和 docs/ddns-task-detail.png 为模拟数据截图。
-
-fnOS 实机安装、升级及真实服务商更新/公网传播验证未执行。
-
-
-0.1.4 公共 DNS 账号：既有表和主密钥兼容、证书引用与旧环境变量配置、草稿及已应用引用保护、轮换、配置预览/持久化不含密钥、运行时注入测试通过。完整 go test ./...、go vet ./...、前端构建、代理 smoke 通过。实际构建的四插件 Windows Caddy 对 Cloudflare/DNSPod/腾讯云/阿里云配置 validate 均通过；运行载荷用模拟 Admin 接收，没有真实签发或 DNS 请求。
-
-隔离浏览器使用虚构账号、停用的 DDNS 任务；证书选择已有 DNSPod 账号后保存 account_id=shared，GET 配置仅含引用，预览不含 Token，真实 Caddy 配置校验通过。docs/certificate-dns-account.png 为该测试截图。fnOS 实机、真实 DNS-01 签发与续期未验证。
-
-
-## Docker / GHCR 部署支持（2026-10-31）
-
-新增多阶段 Dockerfile、bridge / Linux host 两套 Compose、本地构建覆盖配置，以及现有 CI 调用的 GHCR 双架构发布流程。已同步当前内置 DDNS / 证书与 local 管理员认证，不携带 ddns-go 或 Caddy DNS 插件。
-
-本机已通过：`go test ./...`（显式真实 Caddy）、`go vet ./...`、`scripts/smoke.ps1`、前端 54 项测试和 `npm.cmd run build`、三套 Compose 组合的配置校验、actionlint、容器烟测 Python 语法检查。修正了已有证书重载测试对 Windows JSON 路径转义的断言；业务行为不变。测试在沙箱外执行以避免本地连接及 ACL 限制。
-
-本机 Docker Desktop Linux 引擎未就绪，镜像完整构建和 `scripts/smoke-container.py` 实际执行由 GitHub 首次运行验证，通过后才发布。Ubuntu / ARM 实机、fnOS 实机、真实 DNS 凭据、公网 DDNS、ACME 签发与续期验证未执行。
-
-## VPS 访问入口与应用诊断（2026-11-01）
-
-VPS / 原生代理允许 1..65535，fnOS 网关继续限制高位端口。Linux systemd 使用 ambient NET_BIND_SERVICE；VPS host Compose 通过 setpriv 在应用启动前降权，保留该能力供独立 Caddy 子进程继承。已有 bridge 配置不自动迁移，增加显式外部入口声明和端口变量。
-
-界面加入部署说明、外部访问地址、未声明端口的发布配置、“保存并应用”与“仅保存草稿”、目标 HEAD 连接测试，以及基于已应用快照和 Caddy 实际配置的监听状态。测试目标时不跟随重定向、不使用环境代理、不跳过 HTTPS 证书校验；HTTP 错误状态与网络连接失败分开呈现。
-
-本机通过：`go test ./...`（NETLITE_TEST_CADDY 指向真实 Caddy）、`go vet ./...`、前端 65 项测试及生产构建、Compose 配置校验、Linux 入口脚本语法检查。扩展 `scripts/smoke.ps1` 已验证目标测试鉴权、HTTP/HTTPS、监听状态、占用端口报错、失败后原代理继续工作且检查点不变、重启恢复已应用配置并保留草稿。
-
-新增 `scripts/smoke-host.py` 并接入发布前 CI，检查 NetLite/Caddy 的 UID/GID、能力集合与 no-new-privileges、真实 80/443、容器不重建时新增端口及正常退出。本机 Docker Linux 引擎未运行，镜像构建及 host/bridge 容器烟测未执行；上述容器行为仍需 CI / Linux VPS 验证。未进行 VPS / ARM / fnOS 实机、真实 DNS 或公网 ACME 验证。未构建或发布新镜像与 FPK。
+- [飞牛 FPK 安装与验收](FPK.md)：统一网关和管理员登录态，不再使用 18780 管理 TCP 端口。
+- [DNS 账号](DNS-ACCOUNTS.md)、[内置 DDNS](DDNS-INTEGRATION.md)：不再部署 ddns-go。
+- [独立证书管理](CERTIFICATES.md)：证书签发/续期由 NetLite 管理，Caddy 加载证书文件。
+- [Docker 部署](DOCKER.md)：host / bridge、GHCR 工作流、实际数据备份。
